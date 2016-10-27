@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 from itertools import product, chain
-from sqlalchemy.sql.expression import select, func, case
 import sqlalchemy.sql.expression as ex
 import sqlalchemy.types as ty
 
 def make_list(a):
         return [a] if not type(a) in (list, tuple) else list(a)
 
-def make_sql_ex(s):
-    if type(s) is str:
-        return ex.text(s)
+def make_sql_clause(s, constructor):
+    if not isinstance(s, ex.ClauseElement):
+        return constructor(s)
     else:
-        # Maybe assert type(s) is sqlalchemy.sql.base.Generative?
         return s
 
 class Aggregate(object):
@@ -29,7 +27,7 @@ class Aggregate(object):
         in which case the cross product of those is used. If quantity is a
         collection than name should also be a collection of the same length.
         """
-        self.quantities = [make_sql_ex(q) for q in make_list(quantity)]
+        self.quantities = [make_sql_clause(q, ex.literal) for q in make_list(quantity)]
         self.functions = make_list(function)
 
         if name is not None:
@@ -57,9 +55,9 @@ class Aggregate(object):
                 self.functions, zip(self.quantities, self.quantity_names)):
             
             if when is None:
-                column = func.__getattr__(function)(quantity)
+                column = ex.func.__getattr__(function)(quantity)
             else:
-                column = func.__getattr__(function)(case([(when, quantity)]))
+                column = ex.func.__getattr__(function)(ex.case([(when, quantity)]))
 
             name = name_template.format(prefix=prefix, when=when,
                                         quantity=quantity, function=function,
@@ -91,14 +89,14 @@ class SpacetimeAggregation(object):
         self.aggregates = aggregates
         self.intervals = [i if type(i) is not str or i == 'all'
                           else ex.cast(i, ty.Interval) for i in intervals]
-        self.from_obj = make_sql_ex(from_obj)
-        self.group_by = make_sql_ex(group_by)
+        self.from_obj = make_sql_clause(from_obj, ex.table)
+        self.group_by = make_sql_clause(group_by, ex.literal_column)
         self.dates = dates
         self.prefix = prefix if prefix else str(from_obj)
         if date_column is None:
-            self.date_column = ex.column("date")
+            self.date_column = ex.literal("date")
         else:
-            self.date_column = make_sql_ex(date_column)
+            self.date_column = make_sql_clause(date_column, ex.literal_column)
 
     def _get_aggregates_sql(self, interval, date):
         """
@@ -109,7 +107,7 @@ class SpacetimeAggregation(object):
         Returns: collection of aggregate column SQL strings
         """
         if interval != 'all':
-            when = date < self.date_column + interval
+            when = date < (self.date_column + interval)
         else:
             when = None
 
@@ -131,7 +129,7 @@ class SpacetimeAggregation(object):
             columns = list(chain(*(self._get_aggregates_sql(i, date)
                                    for i in self.intervals)))
             where = self.date_column < date
-            queries.append(select(columns=columns, from_obj=self.from_obj)
+            queries.append(ex.select(columns=columns, from_obj=self.from_obj)
                            .where(where)
                            .group_by(self.group_by))
 
