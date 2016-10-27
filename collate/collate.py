@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from itertools import product, chain
-from sqlalchemy.sql.expression import select, literal_column
-
+from sqlalchemy.sql.expression import select, func, case
+import sqlalchemy.sql.expression as ex
+import sqlalchemy.types as ty
 
 def make_list(a):
         return [a] if not type(a) in (list, tuple) else list(a)
@@ -30,7 +31,7 @@ class Aggregate(object):
             if len(self.quantity_names) != len(self.quantities):
                 raise ValueError("Name length doesn't match quantity length")
         else:
-            self.quantity_names = [x.replace('"', '') for x in self.quantities]
+            self.quantity_names = map(str, self.quantities)
 
     def get_columns(self, when=None, prefix=None):
         """
@@ -45,22 +46,20 @@ class Aggregate(object):
             prefix = ""
 
         name_template = "{prefix}{quantity_name}_{function}"
-        if when is None:
-            column_template = "{function}({quantity})"
-        else:
-            column_template = ("{function}(CASE WHEN {when} "
-                               "THEN {quantity} END)")
-
-        format_kwargs = dict(prefix=prefix, when=when)
 
         for function, (quantity, quantity_name) in product(
                 self.functions, zip(self.quantities, self.quantity_names)):
-            format_kwargs.update(quantity=quantity, function=function,
-                                 quantity_name=quantity_name)
-            column = column_template.format(**format_kwargs)
-            name = name_template.format(**format_kwargs)
+            
+            if when is None:
+                column = func.__getattr__(function)(quantity)
+            else:
+                column = func.__getattr__(function)(case([(when, quantity)]))
 
-            yield literal_column(column).label(name)
+            name = name_template.format(prefix=prefix, when=when,
+                                        quantity=quantity, function=function,
+                                        quantity_name=quantity_name)
+
+            yield column.label(name)
 
 
 class SpacetimeAggregation(object):
@@ -70,7 +69,7 @@ class SpacetimeAggregation(object):
         Args:
             aggregates: collection of Aggregate objects
             intervals: collection of PostgreSQL time interval strings, or "all"
-                e.g. ["1 month', "1 year", "all"]
+                e.g. ["1 month", "1 year", "all"]
             from_obj: defines the from clause, e.g. the name of the table
             group_by: defines the groupby, e.g. the name of a column
             dates: list of PostgreSQL date strings,
@@ -84,12 +83,13 @@ class SpacetimeAggregation(object):
             http://docs.sqlalchemy.org/en/latest/core/selectable.html
         """
         self.aggregates = aggregates
-        self.intervals = intervals
+        self.intervals = [i if type(i) is not str or i == 'all'
+                          else ex.cast(i, ty.Interval) for i in intervals]
         self.from_obj = from_obj
         self.group_by = group_by
         self.dates = dates
         self.prefix = prefix if prefix else str(from_obj)
-        self.date_column = date_column if date_column else "date"
+        self.date_column = date_column if date_column is not None else "date"
 
     def _get_aggregates_sql(self, interval, date):
         """
@@ -100,14 +100,13 @@ class SpacetimeAggregation(object):
         Returns: collection of aggregate column SQL strings
         """
         if interval != 'all':
-            when = "'{date}' < {date_column} + interval '{interval}'".format(
-                    interval=interval, date=date, date_column=self.date_column)
+            when = date < self.date_column + interval
         else:
             when = None
 
         prefix = "{prefix}_{group_by}_{interval}_".format(
-                prefix=self.prefix, interval=interval.replace(' ', ''),
-                group_by=self.group_by)
+                prefix=self.prefix, interval=str(interval),
+                group_by=str(self.group_by))
 
         return chain(*(a.get_columns(when, prefix) for a in self.aggregates))
 
@@ -122,8 +121,7 @@ class SpacetimeAggregation(object):
         for date in self.dates:
             columns = list(chain(*(self._get_aggregates_sql(i, date)
                                    for i in self.intervals)))
-            where = "{date_column} < '{date}'".format(
-                    date_column=self.date_column, date=date)
+            where = self.date_column < date
             queries.append(select(columns=columns, from_obj=self.from_obj)
                            .where(where)
                            .group_by(self.group_by))
