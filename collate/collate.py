@@ -3,14 +3,17 @@ from itertools import product, chain
 import sqlalchemy.sql.expression as ex
 import sqlalchemy.types as ty
 
+
 def make_list(a):
         return [a] if not type(a) in (list, tuple) else list(a)
+
 
 def make_sql_clause(s, constructor):
     if not isinstance(s, ex.ClauseElement):
         return constructor(s)
     else:
         return s
+
 
 class Aggregate(object):
     """
@@ -27,7 +30,8 @@ class Aggregate(object):
         in which case the cross product of those is used. If quantity is a
         collection than name should also be a collection of the same length.
         """
-        self.quantities = [make_sql_clause(q, ex.literal) for q in make_list(quantity)]
+        self.quantities = [make_sql_clause(q, ex.literal)
+                           for q in make_list(quantity)]
         self.functions = make_list(function)
 
         if name is not None:
@@ -53,11 +57,12 @@ class Aggregate(object):
 
         for function, (quantity, quantity_name) in product(
                 self.functions, zip(self.quantities, self.quantity_names)):
-            
+
             if when is None:
                 column = ex.func.__getattr__(function)(quantity)
             else:
-                column = ex.func.__getattr__(function)(ex.case([(when, quantity)]))
+                column = ex.func.__getattr__(function)(
+                        ex.case([(when, quantity)]))
 
             name = name_template.format(prefix=prefix, when=when,
                                         quantity=quantity, function=function,
