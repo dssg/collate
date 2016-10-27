@@ -7,6 +7,12 @@ import sqlalchemy.types as ty
 def make_list(a):
         return [a] if not type(a) in (list, tuple) else list(a)
 
+def make_sql_ex(s):
+    if type(s) is str:
+        return ex.text(s)
+    else:
+        # Maybe assert type(s) is sqlalchemy.sql.base.Generative?
+        return s
 
 class Aggregate(object):
     """
@@ -23,7 +29,7 @@ class Aggregate(object):
         in which case the cross product of those is used. If quantity is a
         collection than name should also be a collection of the same length.
         """
-        self.quantities = make_list(quantity)
+        self.quantities = [make_sql_ex(q) for q in make_list(quantity)]
         self.functions = make_list(function)
 
         if name is not None:
@@ -85,11 +91,14 @@ class SpacetimeAggregation(object):
         self.aggregates = aggregates
         self.intervals = [i if type(i) is not str or i == 'all'
                           else ex.cast(i, ty.Interval) for i in intervals]
-        self.from_obj = from_obj
-        self.group_by = group_by
+        self.from_obj = make_sql_ex(from_obj)
+        self.group_by = make_sql_ex(group_by)
         self.dates = dates
         self.prefix = prefix if prefix else str(from_obj)
-        self.date_column = date_column if date_column is not None else "date"
+        if date_column is None:
+            self.date_column = ex.column("date")
+        else:
+            self.date_column = make_sql_ex(date_column)
 
     def _get_aggregates_sql(self, interval, date):
         """
