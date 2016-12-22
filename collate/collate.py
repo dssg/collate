@@ -229,22 +229,19 @@ class Aggregation(object):
         if not join_table:
             join_table = '(%s) t1' % self.get_join_table()
 
-        name = self.get_table_name()
-
         query = "SELECT * FROM %s\n" % join_table
         for group,groupby in self.groups.items():
             query += "LEFT JOIN %s USING (%s)" % (
                     self.get_table_name(group), groupby)
 
-        return "CREATE TABLE %s AS (%s);" % (name, query)
+        return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
 
     def get_drop(self):
         """
         Generate a drop table statement for the aggregation table
         Returns: string sql query
         """
-        name = "%s_%s" % (self.prefix, self.suffix)
-        return "DROP TABLE IF EXISTS %s" % name
+        return "DROP TABLE IF EXISTS %s" % self.get_table_name()
 
     def get_create_schema(self):
         """
@@ -405,8 +402,6 @@ class SpacetimeAggregation(Aggregation):
         if not join_table:
             join_table = '(%s) t1' % self.get_join_table()
 
-        name = "%s_%s" % (self.prefix, self.suffix)
-
         query = ("SELECT * FROM %s\n"
                  "CROSS JOIN (select unnest('{%s}'::date[]) as %s) t2\n") % (
                 join_table, str.join(',', self.dates), self.output_date_column)
@@ -414,4 +409,4 @@ class SpacetimeAggregation(Aggregation):
             query += "LEFT JOIN %s USING (%s, %s)" % (
                     self.get_table_name(group), groupby, self.output_date_column)
 
-        return "CREATE TABLE %s AS (%s);" % (name, query)
+        return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
