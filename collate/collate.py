@@ -106,7 +106,7 @@ class Aggregation(object):
         """
         self.aggregates = aggregates
         self.from_obj = make_sql_clause(from_obj, ex.text)
-        self.groups = groups if isinstance(groups, dict) else {str(g):g for g in groups}
+        self.groups = groups if isinstance(groups, dict) else {str(g): g for g in groups}
         self.prefix = prefix if prefix else str(from_obj)
         self.suffix = suffix if suffix else "aggregation"
         self.schema = schema
@@ -230,7 +230,7 @@ class Aggregation(object):
             join_table = '(%s) t1' % self.get_join_table()
 
         query = "SELECT * FROM %s\n" % join_table
-        for group,groupby in self.groups.items():
+        for group, groupby in self.groups.items():
             query += "LEFT JOIN %s USING (%s)" % (
                     self.get_table_name(group), groupby)
 
@@ -288,7 +288,7 @@ class SpacetimeAggregation(Aggregation):
             intervals: the intervals to aggregate over. either a list of
                 datetime intervals, e.g. ["1 month", "1 year"], or
                 a dictionary of group : intervals pairs where
-                group is a group in groups and intervals is a collection 
+                group is a group in groups and intervals is a collection
                 of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
             dates: list of PostgreSQL date strings,
                 e.g. ["2012-01-01", "2013-01-01"]
@@ -313,7 +313,7 @@ class SpacetimeAggregation(Aggregation):
         if isinstance(intervals, dict):
             self.intervals = intervals
         else:
-            self.intervals = {g:intervals for g in self.groups}
+            self.intervals = {g: intervals for g in self.groups}
         self.dates = dates
         self.date_column = date_column if date_column else "date"
         self.output_date_column = output_date_column if output_date_column else "date"
