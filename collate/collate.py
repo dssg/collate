@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
+from base64 import b64encode
+from hashlib import md5
 
 from sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
 
@@ -11,6 +13,16 @@ def make_list(a):
 
 def make_tuple(a):
     return (a,) if not isinstance(a, tuple) else a
+
+
+def truncate_and_hash(s, maxlen=63):
+    """
+    truncate_and_hash: ensure string `s` is no longer than `maxlen` characters.
+    If it is longer, it is truncated to `maxlen-23` and a hash is appended to
+    ensure that they it is unlikely to collide with another truncated string.
+    """
+    assert maxlen > 23
+    return s if len(s) <= maxlen else s[:maxlen-23] + '$' + b64encode(md5(s).digest(), '_$')[:22]
 
 
 class Aggregate(object):
@@ -85,7 +97,7 @@ class Aggregate(object):
             column = column_template.format(**kwargs).format(**format_kwargs)
             name = name_template.format(**kwargs)
 
-            yield ex.literal_column(column).label(to_sql_name(name))
+            yield ex.literal_column(column).label(truncate_and_hash(to_sql_name(name)))
 
 
 class SpacetimeAggregation(object):
