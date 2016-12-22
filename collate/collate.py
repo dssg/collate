@@ -284,7 +284,7 @@ class Aggregation(object):
 
 class SpacetimeAggregation(Aggregation):
     def __init__(self, aggregates, groups, intervals, from_obj, dates,
-                 prefix=None, suffix=None, schema=None, date_column=None, output_date_column=None):
+                 prefix=None, suffix=None, schema=None, join_table=None, date_column=None, output_date_column=None):
         """
         Args:
             aggregates: collection of Aggregate objects
@@ -314,7 +314,8 @@ class SpacetimeAggregation(Aggregation):
                              groups=groups,
                              prefix=prefix,
                              suffix=suffix,
-                             schema=schema)
+                             schema=schema,
+                             join_table=join_table)
 
         if isinstance(intervals, dict):
             self.intervals = intervals
