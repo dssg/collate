@@ -89,7 +89,7 @@ class Aggregate(object):
 
 
 class Aggregation(object):
-    def __init__(self, aggregates, groups, from_obj, prefix=None, suffix=None, schema=None):
+    def __init__(self, aggregates, groups, from_obj, prefix=None, suffix=None, schema=None, join_table=None):
         """
         Args:
             aggregates: collection of Aggregate objects.
@@ -109,11 +109,12 @@ class Aggregation(object):
         of aggregation.
         """
         self.aggregates = aggregates
-        self.from_obj = make_sql_clause(from_obj, ex.text)
+        self.from_obj = from_obj
         self.groups = groups if isinstance(groups, dict) else {str(g): g for g in groups}
         self.prefix = prefix if prefix else str(from_obj)
         self.suffix = suffix if suffix else "aggregation"
         self.schema = schema
+        self.join_table = join_table
 
     def _get_aggregates_sql(self, group):
         """
@@ -221,19 +222,19 @@ class Aggregation(object):
         """
         Generate a query for a join table
         """
-        return ex.Select(columns=self.groups.values(), from_obj=self.from_obj)\
+        if self.join_table is not None:
+            return self.join_table
+        else:
+            return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.from_obj)\
                  .group_by(*self.groups.values())
 
-    def get_create(self, join_table=None):
+    def get_create(self):
         """
         Generate a single aggregation table creation query by joining
             together the results of get_creates()
         Returns: a CREATE TABLE AS query
         """
-        if not join_table:
-            join_table = '(%s) t1' % self.get_join_table()
-
-        query = "SELECT * FROM %s\n" % join_table
+        query = "SELECT * FROM %s\n" % self.get_join_table()
         for group, groupby in self.groups.items():
             query += "LEFT JOIN %s USING (%s)" % (
                     self.get_table_name(group), groupby)
@@ -323,6 +324,20 @@ class SpacetimeAggregation(Aggregation):
         self.date_column = date_column if date_column else "date"
         self.output_date_column = output_date_column if output_date_column else "date"
 
+    def _get_from_obj(self, date):
+        """
+        Helper for getting from_obj
+        Args:
+            date: date of aggregation
+        Returns: from_obj formatted with collate_date=date if from_obj is formattable
+        """
+        if hasattr(self.from_obj, "format"):
+            from_obj = self.from_obj.format(collate_date=date)
+        else:
+            from_obj = self.from_obj
+
+        return make_sql_clause(from_obj, ex.text)
+
     def _get_aggregates_sql(self, interval, date, group):
         """
         Helper for getting aggregates sql
@@ -370,7 +385,7 @@ class SpacetimeAggregation(Aggregation):
                         date_column=self.date_column, date=date))
 
                 gb_clause = make_sql_clause(groupby, ex.literal_column)
-                query = ex.select(columns=columns, from_obj=self.from_obj)\
+                query = ex.select(columns=columns, from_obj=self._get_from_obj(date))\
                           .where(where)\
                           .group_by(gb_clause)
 
@@ -398,18 +413,15 @@ class SpacetimeAggregation(Aggregation):
                 (self.get_table_name(group), groupby, self.output_date_column)
                 for group, groupby in self.groups.items()}
 
-    def get_create(self, join_table=None):
+    def get_create(self):
         """
         Generate a single aggregation table creation query by joining
             together the results of get_creates()
         Returns: a CREATE TABLE AS query
         """
-        if not join_table:
-            join_table = '(%s) t1' % self.get_join_table()
-
         query = ("SELECT * FROM %s\n"
                  "CROSS JOIN (select unnest('{%s}'::date[]) as %s) t2\n") % (
-                join_table, str.join(',', self.dates), self.output_date_column)
+                self.get_join_table(), str.join(',', self.dates), self.output_date_column)
         for group, groupby in self.groups.items():
             query += "LEFT JOIN %s USING (%s, %s)" % (
                     self.get_table_name(group), groupby, self.output_date_column)
