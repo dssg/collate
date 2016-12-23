@@ -15,7 +15,8 @@ def make_tuple(a):
 
 def split_distinct(quantity):
     # Only support distinct clauses with one-argument quantities
-    if len(quantity) != 1: return ('', quantity)
+    if len(quantity) != 1:
+        return ('', quantity)
     q = quantity[0]
     if q.startswith('distinct'):
         distinct = 'distinct '
@@ -30,6 +31,7 @@ def split_distinct(quantity):
         distinct = ''
 
     return (distinct, (q,))
+
 
 class Aggregate(object):
     """
@@ -112,7 +114,7 @@ class Aggregation(object):
         """
         Args:
             aggregates: collection of Aggregate objects.
-            from_obj: defines the from clause, e.g. the name of the table. can use 
+            from_obj: defines the from clause, e.g. the name of the table. can use
             groups: a list of expressions to group by in the aggregation or a dictionary
                 pairs group: expr pairs where group is the alias (used in column names)
             prefix: prefix for aggregation tables and column names, defaults to from_obj
