@@ -89,24 +89,28 @@ class Aggregate(object):
 
 
 class Aggregation(object):
-    def __init__(self, aggregates, groups, from_obj, prefix=None, suffix=None, schema=None, join_table=None):
+    def __init__(self, aggregates, groups, from_obj, prefix=None,
+                 suffix=None, schema=None, join_table=None):
         """
         Args:
             aggregates: collection of Aggregate objects.
-            from_obj: defines the from clause, e.g. the name of the table. can use 
+            from_obj: defines the from clause, e.g. the name of the table. can use
             groups: a list of expressions to group by in the aggregation or a dictionary
                 pairs group: expr pairs where group is the alias (used in column names)
             prefix: prefix for aggregation tables and column names, defaults to from_obj
             suffix: suffix for aggregation table, defaults to "aggregation"
-            schema: schema for aggregation tables
+            schema: schema for aggregation tables, defaults to no schema (so public)
+            join_table: specify a join table, i.e. a table containing unique sets of all possible
+            valid groups to left join the aggregations onto.
+            Defaults to None, in which case this table is created by querying the from_obj.
 
         The from_obj and group expressions are passed directly to the
             SQLAlchemy Select object so could be anything supported there.
             For details see:
             http://docs.sqlalchemy.org/en/latest/core/selectable.html
 
-        Aggregates will have {collate_date} in their quantities substituted with the date
-        of aggregation.
+        The aggregates and from_obj will have {collate_date} in their quantities
+        substituted with the date of aggregation.
         """
         self.aggregates = aggregates
         self.from_obj = from_obj
@@ -284,13 +288,10 @@ class Aggregation(object):
 
 class SpacetimeAggregation(Aggregation):
     def __init__(self, aggregates, groups, intervals, from_obj, dates,
-                 prefix=None, suffix=None, schema=None, join_table=None, date_column=None, output_date_column=None):
+                 prefix=None, suffix=None, schema=None, join_table=None,
+                 date_column=None, output_date_column=None):
         """
         Args:
-            aggregates: collection of Aggregate objects
-            from_obj: defines the from clause, e.g. the name of the table
-            groups: a list of expressions to group by in the aggregation or a dictionary
-                pairs group: expr pairs where group is the alias (used in column names)
             intervals: the intervals to aggregate over. either a list of
                 datetime intervals, e.g. ["1 month", "1 year"], or
                 a dictionary of group : intervals pairs where
@@ -298,15 +299,11 @@ class SpacetimeAggregation(Aggregation):
                 of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
             dates: list of PostgreSQL date strings,
                 e.g. ["2012-01-01", "2013-01-01"]
-            prefix: prefix for column names, defaults to from_obj
-            suffix: suffix for aggregation table, defaults to "aggregation"
             date_column: name of date column in from_obj, defaults to "date"
-            output_date_column: name of date column in aggregated output, defaults to "date"
+            output_date_column: name of date column in aggregated output,
+                defaults to "date"
 
-        The from_obj and group arguments are passed directly to the
-            SQLAlchemy Select object so could be anything supported there.
-            For details see:
-            http://docs.sqlalchemy.org/en/latest/core/selectable.html
+        For all other arguments and additional notes see the Aggregation class.
         """
         Aggregation.__init__(self,
                              aggregates=aggregates,
