@@ -23,9 +23,9 @@ def split_distinct(quantity):
         return ('', quantity)
     q = quantity[0]
     if DISTINCT_REGEX.match(q):
-        return "distinct ", q[8:].lstrip(" ")
+        return "distinct ", (q[8:].lstrip(" "),)
     else:
-        return "", q
+        return "", (q,)
 
 
 class Aggregate(object):
