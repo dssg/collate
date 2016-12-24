@@ -51,7 +51,8 @@ class Aggregate(object):
             for the expressions and values are expressions.
         """
         if isinstance(quantity, dict):
-            self.quantities = quantity
+            # make quantity values tuples
+            self.quantities = {k: make_tuple(q) for k,q in quantity.items()}
         else:
             # first convert to list of tuples
             quantities = [make_tuple(q) for q in make_list(quantity)]
@@ -91,7 +92,7 @@ class Aggregate(object):
                 self.functions, self.quantities.items(), self.orders):
             distinct, quantity = split_distinct(quantity)
             args = str.join(", ", (arg_template.format(when=when, quantity=q)
-                                   for q in make_tuple(quantity)))
+                                   for q in quantity))
             order_clause = order_template.format(when=when, order=order)
 
             kwargs = dict(function=function, args=args, prefix=prefix,
