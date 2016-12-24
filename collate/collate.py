@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
+import re
 
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
 
@@ -13,24 +14,18 @@ def make_tuple(a):
     return (a,) if not isinstance(a, tuple) else a
 
 
+DISTINCT_REGEX = re.compile(r"distinct[ (]")
+
+
 def split_distinct(quantity):
     # Only support distinct clauses with one-argument quantities
     if len(quantity) != 1:
         return ('', quantity)
     q = quantity[0]
-    if q.startswith('distinct'):
-        distinct = 'distinct '
-        # Strip the word distinct
-        q = q[8:]
-        # Remove the space or parentheses
-        if q[0] == ' ':
-            q = q[1:]
-        elif q[0] == '(':
-            q = q[1:-1]
+    if DISTINCT_REGEX.match(q):
+        return "distinct ", q[8:].lstrip(" ")
     else:
-        distinct = ''
-
-    return (distinct, (q,))
+        return "", q
 
 
 class Aggregate(object):
