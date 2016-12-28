@@ -13,6 +13,26 @@ def make_tuple(a):
     return (a,) if not isinstance(a, tuple) else a
 
 
+def split_distinct(quantity):
+    # Only support distinct clauses with one-argument quantities
+    if len(quantity) != 1:
+        return ('', quantity)
+    q = quantity[0]
+    if q.startswith('distinct'):
+        distinct = 'distinct '
+        # Strip the word distinct
+        q = q[8:]
+        # Remove the space or parentheses
+        if q[0] == ' ':
+            q = q[1:]
+        elif q[0] == '(':
+            q = q[1:-1]
+    else:
+        distinct = ''
+
+    return (distinct, (q,))
+
+
 class Aggregate(object):
     """
     An object representing one or more SQL aggregate columns in a groupby
@@ -63,7 +83,7 @@ class Aggregate(object):
             format_kwargs = {}
 
         name_template = "{prefix}{quantity_name}_{function}"
-        column_template = "{function}({args})"
+        column_template = "{function}({distinct}{args})"
         arg_template = "{quantity}"
         order_template = ""
 
@@ -75,12 +95,13 @@ class Aggregate(object):
 
         for function, (quantity_name, quantity), order in product(
                 self.functions, self.quantities.items(), self.orders):
+            distinct, quantity = split_distinct(quantity)
             args = str.join(", ", (arg_template.format(when=when, quantity=q)
                                    for q in quantity))
             order_clause = order_template.format(when=when, order=order)
 
             kwargs = dict(function=function, args=args, prefix=prefix,
-                          order_clause=order_clause,
+                          distinct=distinct, order_clause=order_clause,
                           quantity_name=quantity_name, **format_kwargs)
 
             column = column_template.format(**kwargs).format(**format_kwargs)
