@@ -52,7 +52,7 @@ class Aggregate(object):
         """
         if isinstance(quantity, dict):
             # make quantity values tuples
-            self.quantities = {k: make_tuple(q) for k,q in quantity.items()}
+            self.quantities = {k: make_tuple(q) for k, q in quantity.items()}
         else:
             # first convert to list of tuples
             quantities = [make_tuple(q) for q in make_list(quantity)]
