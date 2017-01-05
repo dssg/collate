@@ -11,10 +11,6 @@ class SpacetimeAggregation(Aggregation):
                  prefix=None, suffix=None, schema=None, date_column=None, output_date_column=None):
         """
         Args:
-            aggregates: collection of Aggregate objects
-            from_obj: defines the from clause, e.g. the name of the table
-            groups: a list of expressions to group by in the aggregation or a dictionary
-                pairs group: expr pairs where group is the alias (used in column names)
             intervals: the intervals to aggregate over. either a list of
                 datetime intervals, e.g. ["1 month", "1 year"], or
                 a dictionary of group : intervals pairs where
@@ -22,15 +18,10 @@ class SpacetimeAggregation(Aggregation):
                 of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
             dates: list of PostgreSQL date strings,
                 e.g. ["2012-01-01", "2013-01-01"]
-            prefix: prefix for column names, defaults to from_obj
-            suffix: suffix for aggregation table, defaults to "aggregation"
             date_column: name of date column in from_obj, defaults to "date"
             output_date_column: name of date column in aggregated output, defaults to "date"
 
-        The from_obj and group arguments are passed directly to the
-            SQLAlchemy Select object so could be anything supported there.
-            For details see:
-            http://docs.sqlalchemy.org/en/latest/core/selectable.html
+        For all other arguments see collate.Aggregation
         """
         Aggregation.__init__(self,
                              aggregates=aggregates,
