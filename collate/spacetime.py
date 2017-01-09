@@ -131,7 +131,7 @@ class SpacetimeAggregation(Aggregation):
         Generates a join table, consisting of an entry for each combination of
         groups and dates in the from_obj
         """
-        groups = self.groups.values()
+        groups = list(self.groups.values())
         intervals = list(set(chain(*self.intervals.values())))
 
         queries = []
