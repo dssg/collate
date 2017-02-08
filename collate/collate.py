@@ -2,7 +2,10 @@
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
 
+from joblib import Parallel, delayed
+
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
+
 
 
 def make_list(a):
@@ -281,6 +284,63 @@ class Aggregation(object):
         conn.execute(self.get_create())
         trans.commit()
 
+    def execute_insert(get_engine, insert):
+        try:
+            engine = get_engine()
+        except:
+            print('Could not connect to the database within spawned process')
+            raise
+
+        print("Starting parallel process")
+
+        # transaction
+        with engine.begin() as conn:
+            conn.execute(insert)
+
+        engine.dispose()
+
+        return True
+
+    def execute_par(self, conn_func, n_jobs=14):
+        """
+        Execute all SQL statements to create final aggregation table.
+        Args:
+            conn_func:  a function that returns ae SQLAlchemy engine
+        """
+
+        engine = conn_func()
+
+        creates = self.get_creates()
+        drops = self.get_drops()
+        indexes = self.get_indexes()
+        inserts = self.get_inserts()
+
+        if self.schema is not None:
+            # transaction
+            with engine.begin() as conn:
+                conn.execute(self.get_create_schema())
+
+        for group in self.groups:
+            # transaction
+            with engine.begin() as conn:
+                conn.execute(drops[group])
+                conn.execute(creates[group])
+
+            insert_list = [insert for insert in inserts[group]]
+
+            out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(Aggregation.execute_insert)(conn_func, insert)
+                                                      for insert in insert_list)
+            # transaction
+            with engine.begin() as conn:
+                conn.execute(indexes[group])
+
+        # transaction
+        with engine.begin() as conn:
+            conn.execute(self.get_drop())
+            conn.execute(self.get_create())
+
+        engine.dispose()
+
 
 class SpacetimeAggregation(Aggregation):
     def __init__(self, aggregates, groups, intervals, from_obj, dates,
@@ -523,7 +583,7 @@ class SpacetimeSubQueryAggregation(SpacetimeAggregation):
         """
         if self.join_table is not None:
             return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.join_table) \
-            .group_by(*self.groups.values())
+                .group_by(*self.groups.values())
         else:
             return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.from_obj) \
                 .group_by(*self.groups.values())
@@ -540,6 +600,5 @@ class SpacetimeSubQueryAggregation(SpacetimeAggregation):
         for group, groupby in self.groups.items():
             query += "LEFT JOIN %s USING (%s, %s)" % (
                 self.get_table_name(group), groupby, self.output_date_column)
-
 
         return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
