@@ -478,8 +478,14 @@ class Aggregation(object):
                 trans.commit()
                 trans.close()
                 conn.close()
-                out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(sql.connect_and_execute)(db, insert)
+                try:
+                    Parallel(n_jobs=n_jobs, verbose=51)(delayed(sql.connect_and_execute)(db, insert)
                                                                       for insert in inserts[group])
+                except ex:
+                    with sql.create_connection(db).begin() as conn:
+                        for group in self.groups:
+                            conn.execute(drops[group])
+                    raise ex
                 # After we're done, we need to restore the main connection to
                 # do the rest of the work
                 conn = sql.create_connection(db)
