@@ -2,6 +2,30 @@ import sqlalchemy.sql.expression as ex
 from sqlalchemy.ext.compiler import compiles
 
 
+def create_connection(db):
+    """
+    Return a new connection to a new engine, given a function that generates
+    an engine
+    """
+    if callable(db):
+        return db().connect()
+    else:
+        return db.connect()
+
+def connect_and_execute(create_engine, sql):
+    """
+    Given an engine creator, execute a given sql statement in a separate
+    connection
+    """
+    engine = create_engine()
+    # transaction
+    with engine.begin() as conn:
+        conn.execute(sql)
+
+    engine.dispose()
+    return True
+
+
 def make_sql_clause(s, constructor):
     if not isinstance(s, ex.ClauseElement):
         return constructor(s)

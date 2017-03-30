@@ -3,7 +3,9 @@ from numbers import Number
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
 import re
+from joblib import Parallel, delayed
 
+from . import sql
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
 
 
@@ -442,12 +444,16 @@ class Aggregation(object):
         if self.schema is not None:
             return "CREATE SCHEMA IF NOT EXISTS %s" % self.schema
 
-    def execute(self, conn, join_table=None):
+    def execute(self, db, join_table=None, n_jobs=1):
         """
         Execute all SQL statements to create final aggregation table.
         Args:
-            conn: the SQLAlchemy connection on which to execute
+            db: the SQLAlchemy connection on which to execute or a callable that
+                creates a SQLAlchemy engine
         """
+        if not callable(db) and n_jobs > 1:
+            raise ExceptionError("when n_jobs > 1 the db argument must be a function")
+
         create_schema = self.get_create_schema()
         creates = self.get_creates()
         drops = self.get_drops()
@@ -456,6 +462,7 @@ class Aggregation(object):
         drop = self.get_drop()
         create = self.get_create(join_table=join_table)
 
+        conn = sql.create_connection(db)
         trans = conn.begin()
         if create_schema is not None:
             conn.execute(create_schema)
@@ -463,10 +470,28 @@ class Aggregation(object):
         for group in self.groups:
             conn.execute(drops[group])
             conn.execute(creates[group])
-            for insert in inserts[group]:
-                conn.execute(insert)
+            if n_jobs > 1:
+                # This is a little wonky due to difficulty in getting a single
+                # engine to play nicely with parallel executions. So we close
+                # the main connection, and then create a parallel group that
+                # creates a new engine and executes the given SQL independently
+                trans.commit()
+                trans.close()
+                conn.close()
+                out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(sql.connect_and_execute)(db, insert)
+                                                                      for insert in inserts[group])
+                # After we're done, we need to restore the main connection to
+                # do the rest of the work
+                conn = sql.create_connection(db)
+                trans = conn.begin()
+            else:
+                for insert in inserts[group]:
+                    conn.execute(insert)
             conn.execute(indexes[group])
 
         conn.execute(drop)
         conn.execute(create)
+
         trans.commit()
+        trans.close()
+        conn.close()

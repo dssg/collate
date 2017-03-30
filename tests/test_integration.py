@@ -18,7 +18,11 @@ from collate.spacetime import SpacetimeAggregation
 
 with open(path.join(path.dirname(__file__), "config/database.yml")) as f:
     config = yaml.load(f)
-engine = sqlalchemy.create_engine('postgres://', connect_args=config)
+
+def create_engine():
+    return sqlalchemy.create_engine('postgres://', connect_args=config)
+
+engine = create_engine()
 
 def test_engine():
     assert len(engine.execute("SELECT * FROM food_inspections").fetchall()) == 966
@@ -48,6 +52,19 @@ def test_st_lazy_execute():
         date_column = '"inspection_date"')
 
     st.execute(engine.connect())
+
+def test_st_parallel_execute():
+    agg = Aggregate("results='Fail'",["count"])
+    st = SpacetimeAggregation([agg],
+        from_obj = 'food_inspections',
+        groups = ['license_no', 'zip'],
+        intervals = {'license_no':["1 year", "2 years", "all"],
+                           'zip' : ["1 year"]},
+        dates = ['2016-08-31', '2015-08-31'],
+        date_column = '"inspection_date"')
+
+    st.execute(create_engine, n_jobs = 2)
+
 
 def test_st_execute_broadcast_intervals():
     agg = Aggregate("results='Fail'",["count"])
