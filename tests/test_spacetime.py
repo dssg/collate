@@ -153,3 +153,15 @@ def test_beginning_of_time():
         assert rows[1]['events_entity_id_all_outcome::int_avg'] == 0
         
         assert len(rows) == 2
+
+        st = SpacetimeAggregation([Aggregate('outcome::int',['sum','avg'])],
+            from_obj = 'events',
+            groups = ['entity_id'],
+            intervals = ['1y', 'all'],
+            dates = ['2016-01-01', '2015-01-01'],
+            date_column = '"date"',
+            beginning_of_time = '2014-11-10')
+        with pytest.raises(ValueError):
+            st.validate(engine.connect())
+        with pytest.raises(ValueError):
+            st.execute(engine.connect())

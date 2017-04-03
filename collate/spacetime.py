@@ -165,3 +165,24 @@ class SpacetimeAggregation(Aggregation):
                     self.get_table_name(group), groupby, self.output_date_column)
 
         return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
+
+    def validate(self, conn):
+        """
+        SpacetimeAggregations ensure that no intervals extend beyond the absolute
+        minimum time.
+        """
+        if self.beginning_of_time is not None:
+            all_intervals = set(*self.intervals.values())
+            q = 'select '
+            for date in self.dates:
+                for interval in all_intervals:
+                    if interval == "all":
+                        continue
+                    # This could be done more efficiently all at once, but doing
+                    # it this way allows for nicer error messages.
+                    r = conn.execute("select ('%s'::date - '%s'::interval) < '%s'::date" %
+                        (date, interval, self.beginning_of_time))
+                    if r.fetchone()[0]:
+                        raise ValueError(
+                            "date '%s' - '%s' reaches beyond the beginning of time ('%s')" %
+                            (date, interval, self.beginning_of_time))

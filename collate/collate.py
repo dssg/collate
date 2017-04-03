@@ -448,6 +448,7 @@ class Aggregation(object):
         Args:
             conn: the SQLAlchemy connection on which to execute
         """
+        self.validate(conn)
         create_schema = self.get_create_schema()
         creates = self.get_creates()
         drops = self.get_drops()
@@ -470,3 +471,11 @@ class Aggregation(object):
         conn.execute(drop)
         conn.execute(create)
         trans.commit()
+
+    def validate(self, conn):
+        """
+        Validate the Aggregation to ensure that it will perform as expected.
+        This is done against an active SQL connection in order to enable
+        validation of the SQL itself.
+        """
+        pass
