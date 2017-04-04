@@ -173,7 +173,6 @@ class SpacetimeAggregation(Aggregation):
         """
         if self.beginning_of_time is not None:
             all_intervals = set(*self.intervals.values())
-            q = 'select '
             for date in self.dates:
                 for interval in all_intervals:
                     if interval == "all":
@@ -181,7 +180,7 @@ class SpacetimeAggregation(Aggregation):
                     # This could be done more efficiently all at once, but doing
                     # it this way allows for nicer error messages.
                     r = conn.execute("select ('%s'::date - '%s'::interval) < '%s'::date" %
-                        (date, interval, self.beginning_of_time))
+                                     (date, interval, self.beginning_of_time))
                     if r.fetchone()[0]:
                         raise ValueError(
                             "date '%s' - '%s' reaches beyond the beginning of time ('%s')" %
