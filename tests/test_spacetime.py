@@ -118,7 +118,7 @@ def test_basic_spacetime():
         assert rows[6]['events_entity_id_all_outcome::int_avg'] == 0
         assert len(rows) == 7
         
-def test_beginning_of_time():
+def test_input_min_date():
     with testing.postgresql.Postgresql() as psql:
         engine = sqlalchemy.create_engine(psql.url())
         engine.execute(
@@ -136,7 +136,7 @@ def test_beginning_of_time():
             intervals = ['all'],
             dates = ['2016-01-01'],
             date_column = '"date"',
-            beginning_of_time = '2015-11-10')
+            input_min_date = '2015-11-10')
 
         st.execute(engine.connect())
         
@@ -160,7 +160,7 @@ def test_beginning_of_time():
             intervals = ['1y', 'all'],
             dates = ['2016-01-01', '2015-01-01'],
             date_column = '"date"',
-            beginning_of_time = '2014-11-10')
+            input_min_date = '2014-11-10')
         with pytest.raises(ValueError):
             st.validate(engine.connect())
         with pytest.raises(ValueError):
