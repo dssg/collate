@@ -183,5 +183,5 @@ class SpacetimeAggregation(Aggregation):
                                      (date, interval, self.input_min_date))
                     if r.fetchone()[0]:
                         raise ValueError(
-                            "date '%s' - '%s' reaches beyond the beginning of time ('%s')" %
+                            "date '%s' - '%s' is before input_min_date ('%s')" %
                             (date, interval, self.input_min_date))
