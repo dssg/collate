@@ -1,28 +1,11 @@
 # -*- coding: utf-8 -*-
+from .sql import execute_insert
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
 
 from joblib import Parallel, delayed
 
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
-
-
-def execute_insert(get_engine, insert):
-    try:
-        engine = get_engine()
-    except:
-        print('Could not connect to the database within spawned process')
-        raise
-
-    print("Starting parallel process")
-
-    # transaction
-    with engine.begin() as conn:
-        conn.execute(insert)
-
-    engine.dispose()
-
-    return True
 
 
 def make_list(a):
