@@ -7,6 +7,23 @@ from joblib import Parallel, delayed
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
 
 
+def execute_insert(get_engine, insert):
+    try:
+        engine = get_engine()
+    except:
+        print('Could not connect to the database within spawned process')
+        raise
+
+    print("Starting parallel process")
+
+    # transaction
+    with engine.begin() as conn:
+        conn.execute(insert)
+
+    engine.dispose()
+
+    return True
+
 
 def make_list(a):
     return [a] if not isinstance(a, list) else a
@@ -284,23 +301,6 @@ class Aggregation(object):
         conn.execute(self.get_create())
         trans.commit()
 
-    def execute_insert(get_engine, insert):
-        try:
-            engine = get_engine()
-        except:
-            print('Could not connect to the database within spawned process')
-            raise
-
-        print("Starting parallel process")
-
-        # transaction
-        with engine.begin() as conn:
-            conn.execute(insert)
-
-        engine.dispose()
-
-        return True
-
     def execute_par(self, conn_func, n_jobs=14):
         """
         Execute all SQL statements to create final aggregation table.
@@ -328,7 +328,8 @@ class Aggregation(object):
 
             insert_list = [insert for insert in inserts[group]]
 
-            out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(Aggregation.execute_insert)(conn_func, insert)
+            import pdb;pdb.set_trace()
+            out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(execute_insert)(conn_func, insert)
                                                       for insert in insert_list)
             # transaction
             with engine.begin() as conn:
