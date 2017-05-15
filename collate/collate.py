@@ -328,7 +328,6 @@ class Aggregation(object):
 
             insert_list = [insert for insert in inserts[group]]
 
-            import pdb;pdb.set_trace()
             out = Parallel(n_jobs=n_jobs, verbose=51)(delayed(execute_insert)(conn_func, insert)
                                                       for insert in insert_list)
             # transaction
