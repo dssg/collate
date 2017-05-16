@@ -185,3 +185,129 @@ class SpacetimeAggregation(Aggregation):
                         raise ValueError(
                             "date '%s' - '%s' is before input_min_date ('%s')" %
                             (date, interval, self.input_min_date))
+
+
+class SpacetimeSubQueryAggregation(SpacetimeAggregation):
+    def __init__(self, aggregates, groups, intervals, from_obj, dates,
+                 prefix=None, suffix=None, schema=None, date_column=None, output_date_column=None,
+                 sub_query=None, join_table=None):
+        """
+        Args:
+            aggregates: collection of Aggregate objects
+            from_obj: defines the name of the sub query
+            groups: a list of expressions to group by in the aggregation or a dictionary
+                pairs group: expr pairs where group is the alias (used in column names)
+            intervals: the intervals to aggregate over. either a list of
+                datetime intervals, e.g. ["1 month", "1 year"], or
+                a dictionary of group : intervals pairs where
+                group is a group in groups and intervals is a collection
+                of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
+            dates: list of PostgreSQL date strings,
+                e.g. ["2012-01-01", "2013-01-01"]
+            prefix: prefix for column names, defaults to from_obj
+            suffix: suffix for aggregation table, defaults to "aggregation"
+            date_column: name of date column in from_obj, defaults to "date"
+            output_date_column: name of date column in aggregated output, defaults to "date"
+            join_table: specify a join table, i.e. a table containing unique sets of all possible
+                valid groups to left join the aggregations onto.
+                Defaults to None, in which case this table is created by querying the from_obj.
+
+        The group arguments is passed directly to the
+            SQLAlchemy Select object so could be anything supported there.
+            For details see:
+            http://docs.sqlalchemy.org/en/latest/core/selectable.html
+        """
+        Aggregation.__init__(self,
+                             aggregates=aggregates,
+                             from_obj=from_obj,
+                             groups=groups,
+                             prefix=prefix,
+                             suffix=suffix,
+                             schema=schema)
+
+        if isinstance(intervals, dict):
+            self.intervals = intervals
+        else:
+            self.intervals = {g: intervals for g in self.groups}
+        self.dates = dates
+        self.date_column = date_column if date_column else "date"
+        self.output_date_column = output_date_column if output_date_column else "date"
+        self.sub_query = sub_query
+        self.join_table = join_table
+
+    def get_selects(self):
+        """
+        Constructs select queries for this aggregation using a sub query
+
+        Returns: a dictionary of group : queries pairs where
+            group are the same keys as groups
+            queries is a list of Select queries, one for each date in dates
+        """
+        queries = {}
+
+        for group, groupby in self.groups.items():
+            intervals = self.intervals[group]
+            queries[group] = []
+            for date in self.dates:
+                # sub query
+
+                # upper bound on date_column by date
+                where = ex.text("{date_column} < '{date}'".format(
+                    date_column=self.date_column, date=date))
+
+                # the where clause is applied at the the sub_query as this query can make use of indices
+                sub_query = self.sub_query.where(where)
+
+                if 'all' not in intervals:
+                    greatest = "greatest(%s)" % str.join(
+                        ",", ["interval '%s'" % i for i in intervals])
+                    sub_query = sub_query.where(ex.text(
+                        "{date_column} >= '{date}'::date - {greatest}".format(
+                            date_column=self.date_column, date=date,
+                            greatest=greatest)))
+
+                # name the sub query
+                sub_query = sub_query.alias(str(self.from_obj))
+
+                # main query
+                columns = [groupby,
+                           ex.literal_column("'%s'::date"
+                                             % date).label(self.output_date_column)]
+                columns += list(chain(*(self._get_aggregates_sql(
+                    i, date, group) for i in intervals)))
+
+                gb_clause = make_sql_clause(groupby, ex.literal_column)
+
+                # note: there is no where clause as the filtering is applied at the sub query level
+                query = ex.select(columns=columns, from_obj=sub_query) \
+                    .group_by(gb_clause)
+
+                queries[group].append(query)
+
+        return queries
+
+    def get_join_table(self):
+        """
+        Generate a query for a join table
+        """
+        if self.join_table is not None:
+            return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.join_table) \
+                .group_by(*self.groups.values())
+        else:
+            return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.from_obj) \
+                .group_by(*self.groups.values())
+
+    def get_create(self):
+        """
+        Generate a single aggregation table creation query by joining
+            together the results of get_creates()
+        Returns: a CREATE TABLE AS query
+        """
+        query = ("SELECT * FROM %s\n"
+                 "CROSS JOIN (select unnest('{%s}'::date[]) as %s) t2\n") % (
+                    self.get_join_table(), str.join(',', self.dates), self.output_date_column)
+        for group, groupby in self.groups.items():
+            query += "LEFT JOIN %s USING (%s, %s)" % (
+                self.get_table_name(group), groupby, self.output_date_column)
+
+        return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
