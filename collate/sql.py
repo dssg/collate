@@ -4,11 +4,30 @@ from sqlalchemy.ext.compiler import compiles
 #from sqlalchemy.sql import compiler
 #from psycopg2.extensions import adapt as sqlescape
 
+
 def make_sql_clause(s, constructor):
     if not isinstance(s, ex.ClauseElement):
         return constructor(s)
     else:
         return s
+
+
+def execute_insert(get_engine, insert):
+    try:
+        engine = get_engine()
+    except:
+        print('Could not connect to the database within spawned process')
+        raise
+
+    print("Starting parallel process")
+
+    # transaction
+    with engine.begin() as conn:
+        conn.execute(insert)
+
+    engine.dispose()
+
+    return True
 
 
 class CreateTableAs(ex.Executable, ex.ClauseElement):
