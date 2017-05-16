@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from .sql import execute_insert
+from numbers import Number
 from itertools import product, chain
 import sqlalchemy.sql.expression as ex
+import re
 
 from joblib import Parallel, delayed
 
@@ -16,7 +18,106 @@ def make_tuple(a):
     return (a,) if not isinstance(a, tuple) else a
 
 
-class Aggregate(object):
+DISTINCT_REGEX = re.compile(r"distinct[ (]")
+
+
+def split_distinct(quantity):
+    # Only support distinct clauses with one-argument quantities
+    if len(quantity) != 1:
+        return ('', quantity)
+    q = quantity[0]
+    if DISTINCT_REGEX.match(q):
+        return "distinct ", (q[8:].lstrip(" "),)
+    else:
+        return "", (q,)
+
+
+class AggregateExpression(object):
+    def __init__(self, aggregate1, aggregate2, operator,
+                 cast=None, operator_str=None, expression_template=None):
+        """
+        Args:
+            aggregate1: first aggregate
+            aggregate2: second aggregate
+            operator: string of SQL operator, e.g. "+"
+            cast: optional string to put after aggregate1, e.g. "*1.0", "::decimal"
+            operator_str: optional name of operator to use, defaults to operator
+            expression_template: optional formatting template with the following keywords:
+                name1, operator, name2
+        """
+        self.aggregate1 = aggregate1
+        self.aggregate2 = aggregate2
+        self.operator = operator
+        self.cast = cast if cast else ""
+        self.operator_str = operator if operator_str else operator
+        self.expression_template = expression_template \
+            if expression_template else "{name1}{operator}{name2}"
+
+    def alias(self, expression_template):
+        """
+        Set the expression template used for naming columns of an AggregateExpression
+        Returns: self, for chaining
+        """
+        self.expression_template = expression_template
+        return self
+
+    def get_columns(self, when=None, prefix=None, format_kwargs=None):
+        if prefix is None:
+            prefix = ""
+        if format_kwargs is None:
+            format_kwargs = {}
+
+        columns1 = self.aggregate1.get_columns(when)
+        columns2 = self.aggregate2.get_columns(when)
+
+        for c1, c2 in product(columns1, columns2):
+            c = ex.literal_column("({}{} {} {})".format(
+                    c1, self.cast, self.operator, c2))
+            yield c.label(prefix + self.expression_template.format(
+                    name1=c1.name, operator=self.operator_str, name2=c2.name,
+                    **format_kwargs))
+
+    def __add__(self, other):
+        return AggregateExpression(self, other, "+")
+
+    def __sub__(self, other):
+        return AggregateExpression(self, other, "-")
+
+    def __mul__(self, other):
+        return AggregateExpression(self, other, "*")
+
+    def __div__(self, other):
+        return AggregateExpression(self, other, "/", "*1.0")
+
+    def __truediv__(self, other):
+        return AggregateExpression(self, other, "/", "*1.0")
+
+    def __lt__(self, other):
+        return AggregateExpression(self, other, "<")
+
+    def __le__(self, other):
+        return AggregateExpression(self, other, "<=")
+
+    def __eq__(self, other):
+        return AggregateExpression(self, other, "=")
+
+    def __ne__(self, other):
+        return AggregateExpression(self, other, "!=")
+
+    def __gt__(self, other):
+        return AggregateExpression(self, other, ">")
+
+    def __ge__(self, other):
+        return AggregateExpression(self, other, ">=")
+
+    def __or__(self, other):
+        return AggregateExpression(self, other, "or", operator_str="|")
+
+    def __and__(self, other):
+        return AggregateExpression(self, other, "and", operator_str="&")
+
+
+class Aggregate(AggregateExpression):
     """
     An object representing one or more SQL aggregate columns in a groupby
     """
@@ -40,7 +141,8 @@ class Aggregate(object):
             for the expressions and values are expressions.
         """
         if isinstance(quantity, dict):
-            self.quantities = quantity
+            # make quantity values tuples
+            self.quantities = {k: make_tuple(q) for k, q in quantity.items()}
         else:
             # first convert to list of tuples
             quantities = [make_tuple(q) for q in make_list(quantity)]
@@ -66,30 +168,132 @@ class Aggregate(object):
             format_kwargs = {}
 
         name_template = "{prefix}{quantity_name}_{function}"
-        column_template = "{function}({args})"
+        column_template = "{function}({distinct}{args}){order_clause}{filter}"
         arg_template = "{quantity}"
         order_template = ""
+        filter_template = ""
 
         if self.orders != [None]:
-            column_template += " WITHIN GROUP (ORDER BY {order_clause})"
-            order_template = "CASE WHEN {when} THEN {order} END" if when else "{order}"
-        elif when:
-            arg_template = "CASE WHEN {when} THEN {quantity} END"
+            order_template += " WITHIN GROUP (ORDER BY {order})"
+        if when:
+            filter_template = " FILTER (WHERE {when})"
 
         for function, (quantity_name, quantity), order in product(
-            self.functions, self.quantities.items(), self.orders):
-            args = str.join(", ", (arg_template.format(when=when, quantity=q)
-                                   for q in make_tuple(quantity)))
-            order_clause = order_template.format(when=when, order=order)
+                self.functions, self.quantities.items(), self.orders):
+            distinct, quantity = split_distinct(quantity)
+            args = str.join(", ", (arg_template.format(quantity=q)
+                                   for q in quantity))
+            order_clause = order_template.format(order=order)
+            filter = filter_template.format(when=when)
+
+            if order is not None:
+                if len(quantity_name) > 0:
+                    quantity_name += '_'
+                quantity_name += to_sql_name(order)
 
             kwargs = dict(function=function, args=args, prefix=prefix,
-                          order_clause=order_clause,
-                          quantity_name=quantity_name, **format_kwargs)
+                          distinct=distinct, order_clause=order_clause,
+                          quantity_name=quantity_name, filter=filter, **format_kwargs)
 
             column = column_template.format(**kwargs).format(**format_kwargs)
             name = name_template.format(**kwargs)
 
             yield ex.literal_column(column).label(to_sql_name(name))
+
+
+def maybequote(elt, quote_override=None):
+    "Quote for passing to SQL if necessary, based upon the python type"
+    def quote_string(string):
+        return "'{}'".format(string)
+
+    if quote_override is None:
+        if isinstance(elt, Number):
+            return elt
+        else:
+            return quote_string(elt)
+    elif quote_override:
+        return quote_string(elt)
+    else:
+        return elt
+
+
+class Compare(Aggregate):
+    """
+    A simple shorthand to automatically create many comparisons against one column
+    """
+    def __init__(self, col, op, choices, function,
+                 order=None, include_null=False, maxlen=None, op_in_name=True,
+                 quote_choices=None):
+        """
+        Args:
+            col: the column name (or equivalent SQL expression)
+            op: the SQL operation (e.g., '=' or '~' or 'LIKE')
+            choices: A list or dictionary of values. When a dictionary is
+                passed, the keys are a short name for the value.
+            function: (from Aggregate)
+            order: (from Aggregate)
+            include_null: Add an extra `{col} is NULL` if True (default False).
+                 May also be non-boolean, in which case its truthiness determines
+                 the behavior and the value is used as the value short name.
+            maxlen: The maximum length of aggregate quantity names, if specified.
+                Names longer than this will be truncated.
+            op_in_name: Include the operator in aggregate names (default False)
+            quote_choices: Override smart quoting if present (default None)
+
+        A simple helper method to easily create many comparison columns from
+        one source column by comparing it against many values. It effectively
+        creates many quantities of the form "({col} {op} {elt})::INT" for elt
+        in choices. It automatically quotes strings appropriately and leaves
+        numbers unquoted. The type of the comparison is converted to an
+        integer so it can easily be used with 'sum' (for total count) and
+        'avg' (for relative fraction) aggregate functions.
+
+        By default, the aggregates are named "{col}_{op}_{elt}", but the
+        operator may be ommitted if `op_in_name=False`. This name can become
+        long and exceed the maximum column name length. If ``maxlen`` is
+        specified then any aggregate name longer than ``maxlen`` gets
+        truncated with a number appended to ensure that they remain unique and
+        identifiable (but note that sequntial ordering is not preserved).
+        """
+        if type(choices) is not dict:
+            choices = {k: k for k in choices}
+        opname = '_{}_'.format(op) if op_in_name else '_'
+        d = {'{}{}{}'.format(col, opname, nickname):
+             "({} {} {})::INT".format(col, op, maybequote(choice, quote_choices))
+             for nickname, choice in choices.items()}
+        if include_null is True:
+            include_null = '_NULL'
+        if include_null:
+            d['{}_{}'.format(col, include_null)] = '({} is NULL)::INT'.format(col)
+        if maxlen is not None and any(len(k) > maxlen for k in d.keys()):
+            for i, k in enumerate(list(d.keys())):
+                d['%s_%02d' % (k[:maxlen-3], i)] = d.pop(k)
+
+        Aggregate.__init__(self, d, function, order)
+
+
+class Categorical(Compare):
+    """
+    A simple shorthand to automatically create many equality comparisons against one column
+    """
+    def __init__(self, col, choices, function, order=None, op_in_name=False, **kwargs):
+        """
+        Create a Compare object with an equality operator, ommitting the `=`
+        from the generated aggregation names. See Compare for more details.
+
+        As a special extension, Compare's 'include_null' keyword option may be
+        enabled by including the value `None` in the choices list. Multiple
+        None values are ignored.
+        """
+        if None in choices:
+            kwargs['include_null'] = True
+            choices.remove(None)
+        elif type(choices) is dict and None in choices.values():
+            ks = [k for k, v in choices.items() if v is None]
+            for k in ks:
+                choices.pop(k)
+                kwargs['include_null'] = str(k)
+        Compare.__init__(self, col, '=', choices, function, order, op_in_name=op_in_name, **kwargs)
 
 
 class Aggregation(object):
@@ -129,8 +333,8 @@ class Aggregation(object):
         prefix = "{prefix}_{group}_".format(
             prefix=self.prefix, group=group)
 
-        return chain(*(a.get_columns(prefix=prefix)
-                       for a in self.aggregates))
+        return chain(*[a.get_columns(prefix=prefix)
+                       for a in self.aggregates])
 
     def get_selects(self):
         """
@@ -258,20 +462,24 @@ class Aggregation(object):
         if self.schema is not None:
             return "CREATE SCHEMA IF NOT EXISTS %s" % self.schema
 
-    def execute(self, conn):
+    def execute(self, conn, join_table=None):
         """
         Execute all SQL statements to create final aggregation table.
         Args:
             conn: the SQLAlchemy connection on which to execute
         """
+        self.validate(conn)
+        create_schema = self.get_create_schema()
         creates = self.get_creates()
         drops = self.get_drops()
         indexes = self.get_indexes()
         inserts = self.get_inserts()
+        drop = self.get_drop()
+        create = self.get_create(join_table=join_table)
 
         trans = conn.begin()
-        if self.schema is not None:
-            conn.execute(self.get_create_schema())
+        if create_schema is not None:
+            conn.execute(create_schema)
 
         for group in self.groups:
             conn.execute(drops[group])
@@ -280,8 +488,8 @@ class Aggregation(object):
                 conn.execute(insert)
             conn.execute(indexes[group])
 
-        conn.execute(self.get_drop())
-        conn.execute(self.get_create())
+        conn.execute(drop)
+        conn.execute(create)
         trans.commit()
 
     def execute_par(self, conn_func, n_jobs=14):
@@ -324,264 +532,12 @@ class Aggregation(object):
 
         engine.dispose()
 
-
-class SpacetimeAggregation(Aggregation):
-    def __init__(self, aggregates, groups, intervals, from_obj, dates,
-                 prefix=None, suffix=None, schema=None, date_column=None, output_date_column=None):
+    def validate(self, conn):
         """
-        Args:
-            aggregates: collection of Aggregate objects
-            from_obj: defines the from clause, e.g. the name of the table
-            groups: a list of expressions to group by in the aggregation or a dictionary
-                pairs group: expr pairs where group is the alias (used in column names)
-            intervals: the intervals to aggregate over. either a list of
-                datetime intervals, e.g. ["1 month", "1 year"], or
-                a dictionary of group : intervals pairs where
-                group is a group in groups and intervals is a collection
-                of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
-            dates: list of PostgreSQL date strings,
-                e.g. ["2012-01-01", "2013-01-01"]
-            prefix: prefix for column names, defaults to from_obj
-            suffix: suffix for aggregation table, defaults to "aggregation"
-            date_column: name of date column in from_obj, defaults to "date"
-            output_date_column: name of date column in aggregated output, defaults to "date"
-
-        The from_obj and group arguments are passed directly to the
-            SQLAlchemy Select object so could be anything supported there.
-            For details see:
-            http://docs.sqlalchemy.org/en/latest/core/selectable.html
+        Validate the Aggregation to ensure that it will perform as expected.
+        This is done against an active SQL connection in order to enable
+        validation of the SQL itself.
         """
-        Aggregation.__init__(self,
-                             aggregates=aggregates,
-                             from_obj=from_obj,
-                             groups=groups,
-                             prefix=prefix,
-                             suffix=suffix,
-                             schema=schema)
-
-        if isinstance(intervals, dict):
-            self.intervals = intervals
-        else:
-            self.intervals = {g: intervals for g in self.groups}
-        self.dates = dates
-        self.date_column = date_column if date_column else "date"
-        self.output_date_column = output_date_column if output_date_column else "date"
-
-    def _get_aggregates_sql(self, interval, date, group):
-        """
-        Helper for getting aggregates sql
-        Args:
-            interval: SQL time interval string, or "all"
-            date: SQL date string
-            group: group clause, for naming columns
-        Returns: collection of aggregate column SQL strings
-        """
-        if interval != 'all':
-            when = "{date_column} >= '{date}'::date - interval '{interval}'".format(
-                interval=interval, date=date, date_column=self.date_column)
-        else:
-            when = None
-
-        prefix = "{prefix}_{group}_{interval}_".format(
-            prefix=self.prefix, interval=interval,
-            group=group)
-
-        return chain(*(a.get_columns(when, prefix, format_kwargs={"collate_date": date})
-                       for a in self.aggregates))
-
-    def get_selects(self):
-        """
-        Constructs select queries for this aggregation
-
-        Returns: a dictionary of group : queries pairs where
-            group are the same keys as groups
-            queries is a list of Select queries, one for each date in dates
-        """
-        queries = {}
-
-        for group, groupby in self.groups.items():
-            intervals = self.intervals[group]
-            queries[group] = []
-            for date in self.dates:
-                columns = [groupby,
-                           ex.literal_column("'%s'::date"
-                                             % date).label(self.output_date_column)]
-                columns += list(chain(*(self._get_aggregates_sql(
-                    i, date, group) for i in intervals)))
-
-                # upper bound on date_column by date
-                where = ex.text("{date_column} < '{date}'".format(
-                    date_column=self.date_column, date=date))
-
-                gb_clause = make_sql_clause(groupby, ex.literal_column)
-                query = ex.select(columns=columns, from_obj=self.from_obj) \
-                    .where(where) \
-                    .group_by(gb_clause)
-
-                if 'all' not in intervals:
-                    greatest = "greatest(%s)" % str.join(
-                        ",", ["interval '%s'" % i for i in intervals])
-                    query = query.where(ex.text(
-                        "{date_column} >= '{date}'::date - {greatest}".format(
-                            date_column=self.date_column, date=date,
-                            greatest=greatest)))
-
-                queries[group].append(query)
-
-        return queries
-
-    def get_indexes(self):
-        """
-        Generate create index queries for this aggregation
-
-        Returns: a dictionary of group : index pairs where
-            group are the same keys as groups
-            index is a raw create index query for the corresponding table
-        """
-        return {group: "CREATE INDEX ON %s (%s, %s);" %
-                       (self.get_table_name(group), groupby, self.output_date_column)
-                for group, groupby in self.groups.items()}
-
-    def get_create(self, join_table=None):
-        """
-        Generate a single aggregation table creation query by joining
-            together the results of get_creates()
-        Returns: a CREATE TABLE AS query
-        """
-        if not join_table:
-            join_table = '(%s) t1' % self.get_join_table()
-
-        query = ("SELECT * FROM %s\n"
-                 "CROSS JOIN (select unnest('{%s}'::date[]) as %s) t2\n") % (
-                    join_table, str.join(',', self.dates), self.output_date_column)
-        for group, groupby in self.groups.items():
-            query += "LEFT JOIN %s USING (%s, %s)" % (
-                self.get_table_name(group), groupby, self.output_date_column)
-
-        return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
+        pass
 
 
-class SpacetimeSubQueryAggregation(SpacetimeAggregation):
-    def __init__(self, aggregates, groups, intervals, from_obj, dates,
-                 prefix=None, suffix=None, schema=None, date_column=None, output_date_column=None,
-                 sub_query=None, join_table=None):
-        """
-        Args:
-            aggregates: collection of Aggregate objects
-            from_obj: defines the name of the sub query
-            groups: a list of expressions to group by in the aggregation or a dictionary
-                pairs group: expr pairs where group is the alias (used in column names)
-            intervals: the intervals to aggregate over. either a list of
-                datetime intervals, e.g. ["1 month", "1 year"], or
-                a dictionary of group : intervals pairs where
-                group is a group in groups and intervals is a collection
-                of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
-            dates: list of PostgreSQL date strings,
-                e.g. ["2012-01-01", "2013-01-01"]
-            prefix: prefix for column names, defaults to from_obj
-            suffix: suffix for aggregation table, defaults to "aggregation"
-            date_column: name of date column in from_obj, defaults to "date"
-            output_date_column: name of date column in aggregated output, defaults to "date"
-            join_table: specify a join table, i.e. a table containing unique sets of all possible
-                valid groups to left join the aggregations onto.
-                Defaults to None, in which case this table is created by querying the from_obj.
-
-        The group arguments is passed directly to the
-            SQLAlchemy Select object so could be anything supported there.
-            For details see:
-            http://docs.sqlalchemy.org/en/latest/core/selectable.html
-        """
-        Aggregation.__init__(self,
-                             aggregates=aggregates,
-                             from_obj=from_obj,
-                             groups=groups,
-                             prefix=prefix,
-                             suffix=suffix,
-                             schema=schema)
-
-        if isinstance(intervals, dict):
-            self.intervals = intervals
-        else:
-            self.intervals = {g: intervals for g in self.groups}
-        self.dates = dates
-        self.date_column = date_column if date_column else "date"
-        self.output_date_column = output_date_column if output_date_column else "date"
-        self.sub_query = sub_query
-        self.join_table = join_table
-
-    def get_selects(self):
-        """
-        Constructs select queries for this aggregation using a sub query
-
-        Returns: a dictionary of group : queries pairs where
-            group are the same keys as groups
-            queries is a list of Select queries, one for each date in dates
-        """
-        queries = {}
-
-        for group, groupby in self.groups.items():
-            intervals = self.intervals[group]
-            queries[group] = []
-            for date in self.dates:
-                # sub query
-
-                # upper bound on date_column by date
-                where = ex.text("{date_column} < '{date}'".format(
-                    date_column=self.date_column, date=date))
-
-                # the where clause is applied at the the sub_query as this query can make use of indices
-                sub_query = self.sub_query.where(where)
-
-                if 'all' not in intervals:
-                    greatest = "greatest(%s)" % str.join(
-                        ",", ["interval '%s'" % i for i in intervals])
-                    sub_query = sub_query.where(ex.text(
-                        "{date_column} >= '{date}'::date - {greatest}".format(
-                            date_column=self.date_column, date=date,
-                            greatest=greatest)))
-
-                # name the sub query
-                sub_query = sub_query.alias(str(self.from_obj))
-
-                # main query
-                columns = [groupby,
-                           ex.literal_column("'%s'::date"
-                                             % date).label(self.output_date_column)]
-                columns += list(chain(*(self._get_aggregates_sql(
-                    i, date, group) for i in intervals)))
-
-                gb_clause = make_sql_clause(groupby, ex.literal_column)
-
-                # note: there is no where clause as the filtering is applied at the sub query level
-                query = ex.select(columns=columns, from_obj=sub_query) \
-                    .group_by(gb_clause)
-
-                queries[group].append(query)
-
-        return queries
-
-    def get_join_table(self):
-        """
-        Generate a query for a join table
-        """
-        if self.join_table is not None:
-            return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.join_table) \
-                .group_by(*self.groups.values())
-        else:
-            return '(%s) t1' % ex.Select(columns=self.groups.values(), from_obj=self.from_obj) \
-                .group_by(*self.groups.values())
-
-    def get_create(self):
-        """
-        Generate a single aggregation table creation query by joining
-            together the results of get_creates()
-        Returns: a CREATE TABLE AS query
-        """
-        query = ("SELECT * FROM %s\n"
-                 "CROSS JOIN (select unnest('{%s}'::date[]) as %s) t2\n") % (
-                    self.get_join_table(), str.join(',', self.dates), self.output_date_column)
-        for group, groupby in self.groups.items():
-            query += "LEFT JOIN %s USING (%s, %s)" % (
-                self.get_table_name(group), groupby, self.output_date_column)
-
-        return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
