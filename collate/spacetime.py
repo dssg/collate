@@ -7,7 +7,8 @@ from .collate import Aggregation
 
 
 class SpacetimeAggregation(Aggregation):
-    def __init__(self, aggregates, groups, intervals, from_obj, dates,
+    def __init__(self, aggregates, groups, intervals, from_obj, dates, 
+                 state_table, state_group=None,
                  prefix=None, suffix=None, schema=None, date_column=None,
                  output_date_column=None, input_min_date=None):
         """
@@ -19,6 +20,8 @@ class SpacetimeAggregation(Aggregation):
                 of datetime intervals, e.g. {"address_id": ["1 month", "1 year]}
             dates: list of PostgreSQL date strings,
                 e.g. ["2012-01-01", "2013-01-01"]
+            state_table: schema.table to query for valid state_group/date combinations
+            state_group: the group level found in the state table (e.g., "entity_id")
             date_column: name of date column in from_obj, defaults to "date"
             output_date_column: name of date column in aggregated output, defaults to "date"
             input_min_date: minimum date for which rows shall be included, defaults
@@ -39,6 +42,8 @@ class SpacetimeAggregation(Aggregation):
         else:
             self.intervals = {g: intervals for g in self.groups}
         self.dates = dates
+        self.state_table = state_table
+        self.state_group = state_group if state_group else "entity_id"
         self.date_column = date_column if date_column else "date"
         self.output_date_column = output_date_column if output_date_column else "date"
         self.input_min_date = input_min_date
@@ -94,6 +99,23 @@ class SpacetimeAggregation(Aggregation):
                 queries[group].append(query)
 
         return queries
+
+    def get_imputation_rules(self):
+        """
+        Constructs a dictionary to lookup an imputation rule from an associated
+        column name.
+
+        Returns: a dictionary of column : imputation_rule pairs
+        """
+        imprules = {}
+        for group, groupby in self.groups.items():
+            for interval in self.intervals:
+                prefix = "{prefix}_{group}_{interval}_".format(
+                        prefix=self.prefix, interval=interval,
+                        group=group)
+                for a in self.aggregates:
+                    imprules.update(a.column_imputation_lookup(prefix=prefix))
+        return imprules
 
     def where(self, date, intervals):
         """
@@ -185,3 +207,38 @@ class SpacetimeAggregation(Aggregation):
                         raise ValueError(
                             "date '%s' - '%s' is before input_min_date ('%s')" %
                             (date, interval, self.input_min_date))
+
+    def find_nulls(self):
+        # TODO:
+        # 1) get all column names
+        # 2) generate sql to count number of nulls by column name
+        return ImplementationError()
+
+    def get_impute_create(self, impute_cols=[], nonimpute_cols=[]):
+        imprules = self.get_imputation_rules()
+
+        query = "SELECT %s, %s" % (', '.join(self.groups.values()), self.output_date_column)
+        for col in nonimpute_cols:
+            query += "\n,%s" % col
+        for col in impute_cols:
+            query += "\n,%s" % self._impute_sql(col, imprules[col])
+        query += "\nFROM %s t1" % self.get_table_name()
+        query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (self.state_table, self.state_group, self.output_date_column)
+
+        return "CREATE TABLE %s AS (%s)" % (self.get_table_name(imputed=True), query)
+
+    def _impute_sql(self, column, impute_rule):
+        sql = "COALESCE({}, {}) AS {}"
+        if impute_rule['type'] == 'constant':
+            return sql.format(
+                column,
+                impute_rule['value'],
+                column
+            )
+        elif impute_rule['type'] == 'mean':
+            return sql.format(
+                column,
+                "AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
+                column
+            )
+

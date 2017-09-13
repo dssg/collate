@@ -118,11 +118,12 @@ class Aggregate(AggregateExpression):
     """
     An object representing one or more SQL aggregate columns in a groupby
     """
-    def __init__(self, quantity, function, order=None):
+    def __init__(self, quantity, function, impute_rules, order=None):
         """
         Args:
             quantity: SQL for the quantity to aggregate
             function: SQL aggregate function
+            impute_rules: dictionary of rules mapping functions to imputation methods
             order: SQL for order by clause in an ordered set aggregate
 
         Notes:
@@ -147,6 +148,7 @@ class Aggregate(AggregateExpression):
 
         self.functions = make_list(function)
         self.orders = make_list(order)
+        self.impute_rules = impute_rules
 
     def get_columns(self, when=None, prefix=None, format_kwargs=None):
         """
@@ -196,6 +198,38 @@ class Aggregate(AggregateExpression):
 
             yield ex.literal_column(column).label(to_sql_name(name))
 
+    def column_imputation_lookup(self, prefix=None):
+        """
+        Args:
+            prefix: prefix for column names
+        Returns:
+            dictionary mapping columns to appropriate imputation rule
+        """
+        if prefix is None:
+            prefix = ""
+
+        name_template = "{prefix}{quantity_name}_{function}"
+
+        lkup = {}
+        for function, (quantity_name, quantity), order in product(
+                self.functions, self.quantities.items(), self.orders):
+
+            if order is not None:
+                if len(quantity_name) > 0:
+                    quantity_name += '_'
+                quantity_name += to_sql_name(order)
+
+            kwargs = dict(function=function, prefix=prefix,
+                          quantity_name=quantity_name)
+
+            name = name_template.format(**kwargs)
+
+            # requires an imputation rule defined for any function
+            # type used by the aggregate
+            lkup[name] = self.impute_rules[function]
+
+        return lkup
+
 
 def maybequote(elt, quote_override=None):
     "Quote for passing to SQL if necessary, based upon the python type"
@@ -217,7 +251,7 @@ class Compare(Aggregate):
     """
     A simple shorthand to automatically create many comparisons against one column
     """
-    def __init__(self, col, op, choices, function,
+    def __init__(self, col, op, choices, function, impute_rules,
                  order=None, include_null=False, maxlen=None, op_in_name=True,
                  quote_choices=None):
         """
@@ -227,6 +261,7 @@ class Compare(Aggregate):
             choices: A list or dictionary of values. When a dictionary is
                 passed, the keys are a short name for the value.
             function: (from Aggregate)
+            impute_rules: (from Aggregate)
             order: (from Aggregate)
             include_null: Add an extra `{col} is NULL` if True (default False).
                  May also be non-boolean, in which case its truthiness determines
@@ -265,14 +300,14 @@ class Compare(Aggregate):
             for i, k in enumerate(list(d.keys())):
                 d['%s_%02d' % (k[:maxlen-3], i)] = d.pop(k)
 
-        Aggregate.__init__(self, d, function, order)
+        Aggregate.__init__(self, d, function, order, imputation_rules)
 
 
 class Categorical(Compare):
     """
     A simple shorthand to automatically create many equality comparisons against one column
     """
-    def __init__(self, col, choices, function, order=None, op_in_name=False, **kwargs):
+    def __init__(self, col, choices, function, impute_rules, order=None, op_in_name=False, **kwargs):
         """
         Create a Compare object with an equality operator, ommitting the `=`
         from the generated aggregation names. See Compare for more details.
@@ -289,7 +324,8 @@ class Categorical(Compare):
             for k in ks:
                 choices.pop(k)
                 kwargs['include_null'] = str(k)
-        Compare.__init__(self, col, '=', choices, function, order, op_in_name=op_in_name, **kwargs)
+        Compare.__init__(self, col, '=', choices, function, impute_rules, 
+            order, op_in_name=op_in_name, **kwargs)
 
 
 class Aggregation(object):
@@ -354,12 +390,31 @@ class Aggregation(object):
 
         return queries
 
-    def get_table_name(self, group=None):
+    def get_imputation_rules(self):
+        """
+        Constructs a dictionary to lookup an imputation rule from an associated
+        column name.
+
+        Returns: a dictionary of column : imputation_rule pairs
+        """
+        imprules = {}
+        for group, groupby in self.groups.items():
+            prefix = "{prefix}_{group}_".format(
+                    prefix=self.prefix, group=group)
+            for a in self.aggregates:
+                imprules.update(a.column_imputation_lookup(prefix=prefix))
+        return imprules
+
+    def get_table_name(self, group=None, imputed=False):
         """
         Returns name for table for the given group
         """
-        if group is None:
+        if group is None and not imputed:
             name = '"%s_%s"' % (self.prefix, self.suffix)
+        elif group is None and imputed:
+            name = '"%s_%s_%s"' % (self.prefix, self.suffix, 'imputed')
+        elif imputed:
+            name = '"%s"' % to_sql_name("%s_%s_%s" % (self.prefix, group, 'imputed'))
         else:
             name = '"%s"' % to_sql_name("%s_%s" % (self.prefix, group))
         schema = '"%s".' % self.schema if self.schema else ''
@@ -444,12 +499,12 @@ class Aggregation(object):
 
         return "CREATE TABLE %s AS (%s);" % (self.get_table_name(), query)
 
-    def get_drop(self):
+    def get_drop(self, imputed=False):
         """
         Generate a drop table statement for the aggregation table
         Returns: string sql query
         """
-        return "DROP TABLE IF EXISTS %s" % self.get_table_name()
+        return "DROP TABLE IF EXISTS %s" % self.get_table_name(imputed=imputed)
 
     def get_create_schema(self):
         """
