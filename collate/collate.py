@@ -226,10 +226,16 @@ class Aggregate(AggregateExpression):
 
             # requires an imputation rule defined for any function
             # type used by the aggregate (or catch-all with 'all')
-            lkup[name] = dict(
-                self.impute_rules.get(function, self.impute_rules['all']), 
-                coltype=self.impute_rules['coltype']
-                )
+            try:
+                lkup[name] = dict(
+                    self.impute_rules.get(function, self.impute_rules['all']), 
+                    coltype=self.impute_rules['coltype']
+                    )
+            except KeyError as err:
+                raise ValueError(
+                    "Must provide an imputation rule for every aggregation "+\
+                    "function (or 'all'). No rule found for %s" % name
+                    )
 
         return lkup
 
