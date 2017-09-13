@@ -235,7 +235,7 @@ class Aggregate(AggregateExpression):
                 raise ValueError(
                     "Must provide an imputation rule for every aggregation "+\
                     "function (or 'all'). No rule found for %s" % name
-                    )
+                    ) from err
 
         return lkup
 

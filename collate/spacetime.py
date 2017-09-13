@@ -109,7 +109,7 @@ class SpacetimeAggregation(Aggregation):
         """
         imprules = {}
         for group, groupby in self.groups.items():
-            for interval in self.intervals:
+            for interval in self.intervals[group]:
                 prefix = "{prefix}_{group}_{interval}_".format(
                         prefix=self.prefix, interval=interval,
                         group=group)
@@ -220,7 +220,7 @@ class SpacetimeAggregation(Aggregation):
             LEFT JOIN {aggs_tbl} t2 USING({group}, {date_col})
             """
         cols_sql = ',\n'.join([
-            "SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS {col}".format(col=column)
+            """SUM(CASE WHEN "{col}" IS NULL THEN 1 ELSE 0 END) AS "{col}" """.format(col=column)
             for column in self.get_imputation_rules().keys()
             ])
 
@@ -241,21 +241,29 @@ class SpacetimeAggregation(Aggregation):
         """
         imprules = self.get_imputation_rules()
 
+        # check if we're missing any columns relative to the full set and raise an
+        # exception if we are
+        missing_cols = set(imprules.keys()) - set(nonimpute_cols + impute_cols)
+        if len(missing_cols) > 0:
+            raise ValueError('Missing columns in get_impute_create: %s' % missing_cols)
+
         # key columns and date column
         query = "SELECT %s, %s" % (', '.join(self.groups.values()), self.output_date_column)
 
-        # just pass through columns that don't require imputation (no nulls found)
-        for col in nonimpute_cols:
-            query += "\n,%s" % col
+        # pre-sort and iterate through the combined set to ensure column order
+        for col in sorted(nonimpute_cols + impute_cols):
+            # just pass through columns that don't require imputation (no nulls found)
+            if col in nonimpute_cols:
+                query += '\n,"%s"' % col
 
-        # for columns that do require imputation, include SQL to do the imputation work
-        # and a flag for whether the value was imputed
-        for col in impute_cols:
-            query += "\n,%s" % self._impute_sql(col, imprules[col])
-            if imprules[col]['coltype'] not in ['categorical', 'array_categorical']:
-                # Add an imputation flag for non-categorical columns (this is handeled
-                # for categorical columns with a separate NULL category)
-                query += "\n,CASE WHEN %s IS NULL THEN 1 ELSE 0 END AS %s_imp" % (col, col)
+            # for columns that do require imputation, include SQL to do the imputation work
+            # and a flag for whether the value was imputed
+            if col in impute_cols:
+                query += '\n,%s' % self._impute_sql(col, imprules[col])
+                if imprules[col]['coltype'] not in ['categorical', 'array_categorical']:
+                    # Add an imputation flag for non-categorical columns (this is handeled
+                    # for categorical columns with a separate NULL category)
+                    query += """\n,CASE WHEN "%s" IS NULL THEN 1 ELSE 0 END AS "%s_imp" """ % (col, col)
 
         # imputation starts from the state table and left joins into the aggregation table
         query += "\nFROM %s t1" % self.state_table
@@ -282,7 +290,7 @@ class SpacetimeAggregation(Aggregation):
 
         Returns: a COALESCE statement
         """
-        sql = "COALESCE({col}, {{imp}}) AS {col}".format(col=column)
+        sql = """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=column)
         catcol = impute_rule['coltype'] in ['categorical', 'array_categorical']
 
         # mean imputation for non-categorical columns
@@ -290,7 +298,7 @@ class SpacetimeAggregation(Aggregation):
         # date (hence the mean is NULL), rather than passing NULLs through
         if impute_rule['type'] == 'mean' and not catcol:
             return sql.format(
-                imp="AVG(%s) OVER (PARTITION BY %s), 0" % (column, self.output_date_column)
+                imp="""AVG("%s") OVER (PARTITION BY %s), 0""" % (column, self.output_date_column)
             )
 
         # mean imputation for categorical columns:
@@ -302,7 +310,7 @@ class SpacetimeAggregation(Aggregation):
                 return sql.format(imp=1)
             else:
                 return sql.format(
-                    imp="AVG(%s) OVER (PARTITION BY %s), 0" % (column, self.output_date_column)
+                    imp="""AVG("%s") OVER (PARTITION BY %s), 0""" % (column, self.output_date_column)
                 )
 
         # constant value imputation for non-categorical columns
@@ -336,14 +344,14 @@ class SpacetimeAggregation(Aggregation):
         # work to figure out that logic)
         elif impute_rule['type'] == 'binary_mode' and not catcol:
             return sql.format(
-                imp="CASE WHEN AVG(%s) OVER (PARTITION BY %s) > 0.5 THEN 1 ELSE 0 END, 0" %\
+                imp="""CASE WHEN AVG("%s") OVER (PARTITION BY %s) > 0.5 THEN 1 ELSE 0 END, 0""" %\
                  (column, self.output_date_column)
             )
 
         # can specify an "error" imputation type that will simply raise an exception
         # if any null values have been found in the column
         elif impute_rule['type'] == 'error':
-            raise ValueError('NULL values found in column %s' % column)
+            raise ValueError("NULL values found in column with 'error' imputation type: %s" % column)
 
         # a valid imputation type is required for every column, so error out if we don't
         # have one
