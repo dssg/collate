@@ -229,7 +229,7 @@ class SpacetimeAggregation(Aggregation):
                 group=self.state_group, date_col=self.output_date_column
             )
 
-    def get_impute_create(self, impute_cols=[], nonimpute_cols=[]):
+    def get_impute_create(self, impute_cols, nonimpute_cols):
         """
         Generates the CREATE TABLE query for the aggregation table with imputation.
 
