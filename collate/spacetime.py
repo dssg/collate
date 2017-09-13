@@ -267,7 +267,7 @@ class SpacetimeAggregation(Aggregation):
 
         return "CREATE TABLE %s AS (%s)" % (self.get_table_name(imputed=True), query)
 
-    def _impute_sql(self, column, impute_rule):
+    def _impute_sql(self, column, impute_rule, null_cat_pattern='__NULL_'):
         """
         Generate a SQL snippet for coalescing an imputed value to fill in missing values.
         Currently available imputation types include:
@@ -298,7 +298,7 @@ class SpacetimeAggregation(Aggregation):
         # note that we'll fall back to 0 if the column is entirely NULL for a given
         # date (hence the mean is NULL), rather than passing NULLs through
         elif impute_rule['type'] == 'mean' and catcol:
-            if '_NULL' in column:
+            if null_cat_pattern in column:
                 return sql.format(imp=1)
             else:
                 return sql.format(
@@ -315,20 +315,20 @@ class SpacetimeAggregation(Aggregation):
         # fill the appropriate category and null columns with 1, others with 0
         elif impute_rule['type'] == 'constant' and catcol:
             return sql.format(
-                imp = 1 if impute_rule['value'] in column or '_NULL' in column else 0
+                imp = 1 if impute_rule['value'] in column or null_cat_pattern in column else 0
             )
 
         # provide a convenience rule type to do zero-filling
         # (but for categoricals, still fill the NULL column with a 1)
         elif impute_rule['type'] == 'zero':
             return sql.format(
-                imp = 1 if catcol and '_NULL' in column else 0
+                imp = 1 if catcol and null_cat_pattern in column else 0
             )
 
         # just rely on the null category for a categorical column
         elif impute_rule['type'] == 'null_category' and catcol:
             return sql.format(
-                imp = 1 if '_NULL' in column else 0
+                imp = 1 if null_cat_pattern in column else 0
             )
 
         # most frequent value of a binarized variable (not allowing for categoricals
