@@ -260,7 +260,7 @@ class SpacetimeAggregation(Aggregation):
         # imputation starts from the state table and left joins into the aggregation table
         query += "\nFROM %s t1" % self.state_table
         query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (
-            self.get_table_name()
+            self.get_table_name(),
             self.state_group, 
             self.output_date_column
             )
