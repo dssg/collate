@@ -226,7 +226,7 @@ class Aggregate(AggregateExpression):
 
             # requires an imputation rule defined for any function
             # type used by the aggregate
-            lkup[name] = self.impute_rules[function]
+            lkup[name] = dict(self.impute_rules[function], coltype=self.impute_rules['coltype'])
 
         return lkup
 

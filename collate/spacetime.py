@@ -209,36 +209,123 @@ class SpacetimeAggregation(Aggregation):
                             (date, interval, self.input_min_date))
 
     def find_nulls(self):
-        # TODO:
-        # 1) get all column names
-        # 2) generate sql to count number of nulls by column name
-        return ImplementationError()
+        """
+        Generate query to count number of nulls in each column in the aggregation table
+        
+        Returns: a SQL SELECT statement
+        """
+        query_template = """
+            SELECT {cols} 
+            FROM {state_tbl} t1 
+            LEFT JOIN {aggs_tbl} t2 USING({group}, {date_col})
+            """
+        cols_sql = ',\n'.join([
+            "SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS {col}".format(col=column)
+            for column in self.get_imputation_rules().keys()
+            ])
+
+        return query_template.format(
+                cols=cols_sql, state_tbl=self.state_table, aggs_tbl=self.get_table_name(),
+                group=self.state_group, date_col=self.output_date_column
+            )
 
     def get_impute_create(self, impute_cols=[], nonimpute_cols=[]):
+        """
+        Generates the CREATE TABLE query for the aggregation table with imputation.
+
+        Args:
+            impute_cols: a list of column names with null values
+            nonimpute_cols: a list of column names without null values
+
+        Returns: a CREATE TABLE AS query
+        """
         imprules = self.get_imputation_rules()
 
+        # key columns and date column
         query = "SELECT %s, %s" % (', '.join(self.groups.values()), self.output_date_column)
+
+        # just pass through columns that don't require imputation (no nulls found)
         for col in nonimpute_cols:
             query += "\n,%s" % col
+
+        # for columns that do require imputation, include SQL to do the imputation work
+        # and a flag for whether the value was imputed
         for col in impute_cols:
             query += "\n,%s" % self._impute_sql(col, imprules[col])
-        query += "\nFROM %s t1" % self.get_table_name()
-        query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (self.state_table, self.state_group, self.output_date_column)
+            if imprules[col]['coltype'] not in ['categorical', 'array_categorical']:
+                # Add an imputation flag for non-categorical columns (this is handeled
+                # for categorical columns with a separate NULL category)
+                query += "\n,CASE WHEN %s IS NULL THEN 1 ELSE 0 END AS %s_imp" % (col, col)
+
+        # imputation starts from the state table and left joins into the aggregation table
+        query += "\nFROM %s t1" % self.state_table
+        query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (
+            self.get_table_name()
+            self.state_group, 
+            self.output_date_column
+            )
 
         return "CREATE TABLE %s AS (%s)" % (self.get_table_name(imputed=True), query)
 
     def _impute_sql(self, column, impute_rule):
-        sql = "COALESCE({}, {}) AS {}"
-        if impute_rule['type'] == 'constant':
+        """
+        Generate a SQL snippet for coalescing an imputed value to fill in missing values.
+        Currently available imputation types include:
+            mean: mean-value imputation (within-date)
+            constant: constant-value imputation (value must be specified)
+            null_category: flag nulls for categorical variables
+            error: raise an exception if null values are encountered
+
+        Args:
+            column: column name for imputation
+            impute_rule: dict with keys: type, coltype, value (optional)
+
+        Returns: a COALESCE statement
+        """
+        sql = "COALESCE({col}, {{imp}}) AS {col}".format(col=column)
+        catcol = impute_rule['coltype'] in ['categorical', 'array_categorical']
+
+        # mean imputation for non-categorical columns
+        if impute_rule['type'] == 'mean' and not catcol:
             return sql.format(
-                column,
-                impute_rule['value'],
-                column
-            )
-        elif impute_rule['type'] == 'mean':
-            return sql.format(
-                column,
-                "AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
-                column
+                imp="AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
             )
 
+        # mean imputation for categorical columns:
+        # flag the NULL category column with a 1 and other columns with the mean
+        elif impute_rule['type'] == 'mean' and catcol:
+            if '_NULL' in column:
+                return sql.format(imp=1)
+            else:
+                return sql.format(
+                    imp="AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
+                )
+
+        # constant value imputation for non-categorical columns
+        elif impute_rule['type'] == 'constant' and not catcol:
+            return sql.format(
+                imp=impute_rule['value']
+            )
+
+        # constant value imputation for categorical columns:
+        # fill the appropriate category and null columns with 1, others with 0
+        elif impute_rule['type'] == 'constant' and catcol:
+            return sql.format(
+                imp = 1 if impute_rule['value'] in column or '_NULL' in column else 0
+            )
+
+        # just rely on the null category for a categorical column
+        elif impute_rule['type'] == 'null_category' and catcol:
+            return sql.format(
+                imp = 1 if '_NULL' in column else 0
+            )
+
+        # can specify an "error" imputation type that will simply raise an exception
+        # if any null values have been found in the column
+        elif impute_rule['type'] == 'error':
+            raise ValueError('NULL values found in column %s' % column)
+
+        # a valid imputation type is required for every column, so error out if we don't
+        # have one
+        else:
+            raise ValueError('Invalid imputation type %s for column %s' % (impute_rule['type'], column))
