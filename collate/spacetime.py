@@ -286,19 +286,23 @@ class SpacetimeAggregation(Aggregation):
         catcol = impute_rule['coltype'] in ['categorical', 'array_categorical']
 
         # mean imputation for non-categorical columns
+        # note that we'll fall back to 0 if the column is entirely NULL for a given
+        # date (hence the mean is NULL), rather than passing NULLs through
         if impute_rule['type'] == 'mean' and not catcol:
             return sql.format(
-                imp="AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
+                imp="AVG(%s) OVER (PARTITION BY %s), 0" % (column, self.output_date_column)
             )
 
         # mean imputation for categorical columns:
         # flag the NULL category column with a 1 and other columns with the mean
+        # note that we'll fall back to 0 if the column is entirely NULL for a given
+        # date (hence the mean is NULL), rather than passing NULLs through
         elif impute_rule['type'] == 'mean' and catcol:
             if '_NULL' in column:
                 return sql.format(imp=1)
             else:
                 return sql.format(
-                    imp="AVG(%s) OVER (PARTITION BY %s)" % (column, self.output_date_column)
+                    imp="AVG(%s) OVER (PARTITION BY %s), 0" % (column, self.output_date_column)
                 )
 
         # constant value imputation for non-categorical columns
@@ -312,6 +316,13 @@ class SpacetimeAggregation(Aggregation):
         elif impute_rule['type'] == 'constant' and catcol:
             return sql.format(
                 imp = 1 if impute_rule['value'] in column or '_NULL' in column else 0
+            )
+
+        # provide a convenience rule type to do zero-filling
+        # (but for categoricals, still fill the NULL column with a 1)
+        elif impute_rule['type'] == 'zero':
+            return sql.format(
+                imp = 1 if catcol and '_NULL' in column else 0
             )
 
         # just rely on the null category for a categorical column
