@@ -331,6 +331,15 @@ class SpacetimeAggregation(Aggregation):
                 imp = 1 if '_NULL' in column else 0
             )
 
+        # most frequent value of a binarized variable (not allowing for categoricals
+        # since this will NOT give the most frequent category -- need to do more
+        # work to figure out that logic)
+        elif impute_rule['type'] == 'binary_mode' and not catcol:
+            return sql.format(
+                imp="CASE WHEN AVG(%s) OVER (PARTITION BY %s) > 0.5 THEN 1 ELSE 0 END, 0" %\
+                 (column, self.output_date_column)
+            )
+
         # can specify an "error" imputation type that will simply raise an exception
         # if any null values have been found in the column
         elif impute_rule['type'] == 'error':
