@@ -225,8 +225,11 @@ class Aggregate(AggregateExpression):
             name = name_template.format(**kwargs)
 
             # requires an imputation rule defined for any function
-            # type used by the aggregate
-            lkup[name] = dict(self.impute_rules[function], coltype=self.impute_rules['coltype'])
+            # type used by the aggregate (or catch-all with 'all')
+            lkup[name] = dict(
+                self.impute_rules.get(function, self.impute_rules['all']), 
+                coltype=self.impute_rules['coltype']
+                )
 
         return lkup
 
