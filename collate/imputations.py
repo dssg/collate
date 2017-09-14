@@ -7,6 +7,8 @@ class BaseImputation(object):
         self.coltype = coltype
         self.catcol = coltype in ['categorical', 'array_categorical']
         self.partitionby = "" if partitionby is None else "PARTION BY %s" % partitionby
+        # pattern for matching the null category column for a categorical variable
+        # (assumes default of __NULL_ from collate.Compare):
         self.null_cat_pattern = '__NULL_' if null_cat_pattern is None else null_cat_pattern
     def _base_sql(self):
         return """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=self.column)        

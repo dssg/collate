@@ -239,7 +239,7 @@ class Aggregate(AggregateExpression):
             # type used by the aggregate (or catch-all with 'all')
             try:
                 lkup[name] = dict(
-                    self.impute_rules.get(function, self.impute_rules['all']), 
+                    self.impute_rules.get(function) or self.impute_rules['all'], 
                     coltype=self.impute_rules['coltype']
                     )
             except KeyError as err:
