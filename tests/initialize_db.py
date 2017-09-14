@@ -12,3 +12,13 @@ with open("config/database.yml") as f:
 system("""psql -c "DROP TABLE IF EXISTS food_inspections;" """)
 system("""csvsql --no-constraints --table food_inspections < food_inspections_subset.csv | psql """)
 system("""psql -c "\copy food_inspections FROM 'food_inspections_subset.csv' WITH CSV HEADER;" """)
+system("""psql -c "CREATE INDEX ON food_inspections(license_no, inspection_date)" """)
+
+# create a state table
+sql = """CREATE TABLE inspection_states AS (
+SELECT license_no, inspection_date
+FROM (SELECT DISTINCT license_no FROM food_inspections) a
+CROSS JOIN (SELECT DISTINCT inspection_date FROM food_inspections) b
+)""".replace('\n', ' ')
+system("""psql -c "%s" """ % sql)
+system("""psql -c "CREATE INDEX ON inspection_states(license_no, inspection_date)" """)
