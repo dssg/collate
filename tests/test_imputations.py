@@ -24,13 +24,13 @@ def test_mean_imputation():
     assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (), 0) AS "a" '
 
     imp = ImputeMean(column='a', coltype='aggregate', partitionby='date')
-    assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (PARTION BY date), 0) AS "a" '
+    assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (PARTITION BY date), 0) AS "a" '
 
     imp = ImputeMean(column='a', coltype='categorical')
     assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (), 0) AS "a" '
 
     imp = ImputeMean(column='a', coltype='aggregate', partitionby='date')
-    assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (PARTION BY date), 0) AS "a" '
+    assert imp.to_sql() == 'COALESCE("a", AVG("a") OVER (PARTITION BY date), 0) AS "a" '
 
     imp = ImputeMean(column='a__NULL_mean', coltype='categorical')
     assert imp.to_sql() == 'COALESCE("a__NULL_mean", 1) AS "a__NULL_mean" '
@@ -85,7 +85,7 @@ def test_impute_binary_mode():
     assert imp.to_sql() == 'COALESCE("a", CASE WHEN AVG("a") OVER () > 0.5 THEN 1 ELSE 0 END, 0) AS "a" '
 
     imp = ImputeBinaryMode(column='a', coltype='aggregate', partitionby='date')
-    assert imp.to_sql() == 'COALESCE("a", CASE WHEN AVG("a") OVER (PARTION BY date) > 0.5 THEN 1 ELSE 0 END, 0) AS "a" '
+    assert imp.to_sql() == 'COALESCE("a", CASE WHEN AVG("a") OVER (PARTITION BY date) > 0.5 THEN 1 ELSE 0 END, 0) AS "a" '
 
     try:
         imp = ImputeBinaryMode(column='a', coltype='categorical')
