@@ -33,6 +33,8 @@ class SpacetimeAggregation(Aggregation):
                              aggregates=aggregates,
                              from_obj=from_obj,
                              groups=groups,
+                             state_table=state_table,
+                             state_group=state_group,
                              prefix=prefix,
                              suffix=suffix,
                              schema=schema)
@@ -42,8 +44,6 @@ class SpacetimeAggregation(Aggregation):
         else:
             self.intervals = {g: intervals for g in self.groups}
         self.dates = dates
-        self.state_table = state_table
-        self.state_group = state_group if state_group else "entity_id"
         self.date_column = date_column if date_column else "date"
         self.output_date_column = output_date_column if output_date_column else "date"
         self.input_min_date = input_min_date
@@ -239,31 +239,16 @@ class SpacetimeAggregation(Aggregation):
 
         Returns: a CREATE TABLE AS query
         """
-        imprules = self.get_imputation_rules()
-
-        # check if we're missing any columns relative to the full set and raise an
-        # exception if we are
-        missing_cols = set(imprules.keys()) - set(nonimpute_cols + impute_cols)
-        if len(missing_cols) > 0:
-            raise ValueError('Missing columns in get_impute_create: %s' % missing_cols)
 
         # key columns and date column
         query = "SELECT %s, %s" % (', '.join(self.groups.values()), self.output_date_column)
 
-        # pre-sort and iterate through the combined set to ensure column order
-        for col in sorted(nonimpute_cols + impute_cols):
-            # just pass through columns that don't require imputation (no nulls found)
-            if col in nonimpute_cols:
-                query += '\n,"%s"' % col
-
-            # for columns that do require imputation, include SQL to do the imputation work
-            # and a flag for whether the value was imputed
-            if col in impute_cols:
-                query += '\n,%s' % self._impute_sql(col, imprules[col])
-                if imprules[col]['coltype'] not in ['categorical', 'array_categorical']:
-                    # Add an imputation flag for non-categorical columns (this is handeled
-                    # for categorical columns with a separate NULL category)
-                    query += """\n,CASE WHEN "%s" IS NULL THEN 1 ELSE 0 END AS "%s_imp" """ % (col, col)
+        # columns with imputation filling as needed
+        query += self._get_impute_select(
+            impute_cols, 
+            nonimpute_cols, 
+            partitionby=self.output_date_column
+        )
 
         # imputation starts from the state table and left joins into the aggregation table
         query += "\nFROM %s t1" % self.state_table
@@ -274,86 +259,3 @@ class SpacetimeAggregation(Aggregation):
             )
 
         return "CREATE TABLE %s AS (%s)" % (self.get_table_name(imputed=True), query)
-
-    def _impute_sql(self, column, impute_rule, null_cat_pattern='__NULL_'):
-        """
-        Generate a SQL snippet for coalescing an imputed value to fill in missing values.
-        Currently available imputation types include:
-            mean: mean-value imputation (within-date)
-            constant: constant-value imputation (value must be specified)
-            null_category: flag nulls for categorical variables
-            error: raise an exception if null values are encountered
-
-        Args:
-            column: column name for imputation
-            impute_rule: dict with keys: type, coltype, value (optional)
-
-        Returns: a COALESCE statement
-        """
-        sql = """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=column)
-        catcol = impute_rule['coltype'] in ['categorical', 'array_categorical']
-
-        # mean imputation for non-categorical columns
-        # note that we'll fall back to 0 if the column is entirely NULL for a given
-        # date (hence the mean is NULL), rather than passing NULLs through
-        if impute_rule['type'] == 'mean' and not catcol:
-            return sql.format(
-                imp="""AVG("%s") OVER (PARTITION BY %s), 0""" % (column, self.output_date_column)
-            )
-
-        # mean imputation for categorical columns:
-        # flag the NULL category column with a 1 and other columns with the mean
-        # note that we'll fall back to 0 if the column is entirely NULL for a given
-        # date (hence the mean is NULL), rather than passing NULLs through
-        elif impute_rule['type'] == 'mean' and catcol:
-            if null_cat_pattern in column:
-                return sql.format(imp=1)
-            else:
-                return sql.format(
-                    imp="""AVG("%s") OVER (PARTITION BY %s), 0""" % (column, self.output_date_column)
-                )
-
-        # constant value imputation for non-categorical columns
-        elif impute_rule['type'] == 'constant' and not catcol:
-            return sql.format(
-                imp=impute_rule['value']
-            )
-
-        # constant value imputation for categorical columns:
-        # fill the appropriate category and null columns with 1, others with 0
-        elif impute_rule['type'] == 'constant' and catcol:
-            return sql.format(
-                imp = 1 if impute_rule['value'] in column or null_cat_pattern in column else 0
-            )
-
-        # provide a convenience rule type to do zero-filling
-        # (but for categoricals, still fill the NULL column with a 1)
-        elif impute_rule['type'] == 'zero':
-            return sql.format(
-                imp = 1 if catcol and null_cat_pattern in column else 0
-            )
-
-        # just rely on the null category for a categorical column
-        elif impute_rule['type'] == 'null_category' and catcol:
-            return sql.format(
-                imp = 1 if null_cat_pattern in column else 0
-            )
-
-        # most frequent value of a binarized variable (not allowing for categoricals
-        # since this will NOT give the most frequent category -- need to do more
-        # work to figure out that logic)
-        elif impute_rule['type'] == 'binary_mode' and not catcol:
-            return sql.format(
-                imp="""CASE WHEN AVG("%s") OVER (PARTITION BY %s) > 0.5 THEN 1 ELSE 0 END, 0""" %\
-                 (column, self.output_date_column)
-            )
-
-        # can specify an "error" imputation type that will simply raise an exception
-        # if any null values have been found in the column
-        elif impute_rule['type'] == 'error':
-            raise ValueError("NULL values found in column with 'error' imputation type: %s" % column)
-
-        # a valid imputation type is required for every column, so error out if we don't
-        # have one
-        else:
-            raise ValueError('Invalid imputation type %s for column %s' % (impute_rule['type'], column))
