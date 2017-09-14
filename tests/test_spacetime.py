@@ -15,6 +15,7 @@ from collate.spacetime import SpacetimeAggregation
 import sqlalchemy
 import testing.postgresql
 from datetime import date
+from itertools import product
 
 events_data = [
     # entity id, event_date, outcome
@@ -32,6 +33,12 @@ events_data = [
     [4, date(2016, 12, 13), True],
 ]
 
+# distinct entity_id, event_date pairs
+state_data = sorted(list(product(
+    set([l[0] for l in events_data]),
+    set([l[1] for l in events_data])
+)))
+
 
 def test_basic_spacetime():
     with testing.postgresql.Postgresql() as psql:
@@ -44,13 +51,32 @@ def test_basic_spacetime():
                 'insert into events values (%s, %s, %s::bool)',
                 event
             )
+
+        engine.execute(
+            'create table states (entity_id int, date date)'
+        )
+        for state in state_data:
+            engine.execute(
+                'insert into states values (%s, %s)',
+                state
+            )
         
-        st = SpacetimeAggregation([Aggregate('outcome::int',['sum','avg'])],
-            from_obj = 'events',
-            groups = ['entity_id'],
-            intervals = ['1y', '2y', 'all'],
-            dates = ['2016-01-01', '2015-01-01'],
-            date_column = '"date"')
+        agg = Aggregate('outcome::int', ['sum','avg'], {
+            "coltype": "aggregate",
+            "avg": {"type": "mean"}, 
+            "sum": {"type": "constant", "value": 3},
+            "max": {"type": "zero"}
+        })
+        st = SpacetimeAggregation(
+                aggregates = [agg],
+                from_obj = 'events',
+                groups = ['entity_id'],
+                intervals = ['1y', '2y', 'all'],
+                dates = ['2016-01-01', '2015-01-01'],
+                state_table = 'states',
+                state_group = 'entity_id',
+                date_column = '"date"'
+            )
 
         st.execute(engine.connect())
         
@@ -129,14 +155,33 @@ def test_input_min_date():
                 'insert into events values (%s, %s, %s::bool)',
                 event
             )
-        
-        st = SpacetimeAggregation([Aggregate('outcome::int',['sum','avg'])],
+
+        engine.execute(
+            'create table states (entity_id int, date date)'
+        )
+        for state in state_data:
+            engine.execute(
+                'insert into states values (%s, %s)',
+                state
+            )
+
+        agg = Aggregate('outcome::int', ['sum','avg'], {
+            "coltype": "aggregate",
+            "avg": {"type": "mean"}, 
+            "sum": {"type": "constant", "value": 3},
+            "max": {"type": "zero"}
+        })
+        st = SpacetimeAggregation(
+            aggregates = [agg],
             from_obj = 'events',
             groups = ['entity_id'],
             intervals = ['all'],
             dates = ['2016-01-01'],
+            state_table = 'states',
+            state_group = 'entity_id',
             date_column = '"date"',
-            input_min_date = '2015-11-10')
+            input_min_date = '2015-11-10'
+        )
 
         st.execute(engine.connect())
         
@@ -154,13 +199,17 @@ def test_input_min_date():
         
         assert len(rows) == 2
 
-        st = SpacetimeAggregation([Aggregate('outcome::int',['sum','avg'])],
+        st = SpacetimeAggregation(
+            aggregates = [agg],
             from_obj = 'events',
             groups = ['entity_id'],
             intervals = ['1y', 'all'],
             dates = ['2016-01-01', '2015-01-01'],
+            state_table = 'states',
+            state_group = 'entity_id',
             date_column = '"date"',
-            input_min_date = '2014-11-10')
+            input_min_date = '2014-11-10'
+        )
         with pytest.raises(ValueError):
             st.validate(engine.connect())
         with pytest.raises(ValueError):
