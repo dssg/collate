@@ -81,7 +81,9 @@ def test_execute():
     agg = Aggregate("results='Fail'",["count"])
     st = Aggregation([agg],
         from_obj = 'food_inspections',
-        groups = ['license_no', 'zip'])
+        groups = ['license_no', 'zip'],
+        state_table = 'all_licenses',
+        state_group = 'license_no')
 
     st.execute(engine.connect())
 

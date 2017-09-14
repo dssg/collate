@@ -14,7 +14,7 @@ system("""csvsql --no-constraints --table food_inspections < food_inspections_su
 system("""psql -c "\copy food_inspections FROM 'food_inspections_subset.csv' WITH CSV HEADER;" """)
 system("""psql -c "CREATE INDEX ON food_inspections(license_no, inspection_date)" """)
 
-# create a state table
+# create a state table for license/date
 sql = """CREATE TABLE inspection_states AS (
 SELECT license_no, inspection_date
 FROM (SELECT DISTINCT license_no FROM food_inspections) a
@@ -22,3 +22,10 @@ CROSS JOIN (SELECT DISTINCT inspection_date FROM food_inspections) b
 )""".replace('\n', ' ')
 system("""psql -c "%s" """ % sql)
 system("""psql -c "CREATE INDEX ON inspection_states(license_no, inspection_date)" """)
+
+# create a state table for licenseo only
+sql = """CREATE TABLE all_licenses AS (
+SELECT DISTINCT license_no FROM food_inspections
+)""".replace('\n', ' ')
+system("""psql -c "%s" """ % sql)
+system("""psql -c "CREATE INDEX ON all_licenses(license_no)" """)
