@@ -48,6 +48,25 @@ class SpacetimeAggregation(Aggregation):
         self.output_date_column = output_date_column if output_date_column else "date"
         self.input_min_date = input_min_date
 
+    def _state_table_sub(self):
+        """Helper function to ensure we only include state table records
+        in our set of input dates and after the input_min_date.
+        """
+        datestr = ', '.join(["'%s'::date" % dt for dt in self.dates])
+        mindtstr = " AND %s >= '%s'::date" %\
+                (self.output_date_column, self.input_min_date)\
+                if self.input_min_date is not None else ""
+        return """(
+        SELECT * 
+        FROM {st} 
+        WHERE {datecol} IN ({datestr})
+        {mindtstr})""".format(
+            st = self.state_table,
+            datecol = self.output_date_column,
+            datestr = datestr,
+            mindtstr = mindtstr
+        )
+
     def _get_aggregates_sql(self, interval, date, group):
         """
         Helper for getting aggregates sql
@@ -225,7 +244,7 @@ class SpacetimeAggregation(Aggregation):
             ])
 
         return query_template.format(
-                cols=cols_sql, state_tbl=self.state_table, aggs_tbl=self.get_table_name(),
+                cols=cols_sql, state_tbl=self._state_table_sub(), aggs_tbl=self.get_table_name(),
                 group=self.state_group, date_col=self.output_date_column
             )
 
@@ -251,7 +270,7 @@ class SpacetimeAggregation(Aggregation):
         )
 
         # imputation starts from the state table and left joins into the aggregation table
-        query += "\nFROM %s t1" % self.state_table
+        query += "\nFROM %s t1" % self._state_table_sub()
         query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (
             self.get_table_name(),
             self.state_group, 
