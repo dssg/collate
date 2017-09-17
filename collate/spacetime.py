@@ -227,7 +227,7 @@ class SpacetimeAggregation(Aggregation):
                             "date '%s' - '%s' is before input_min_date ('%s')" %
                             (date, interval, self.input_min_date))
 
-    def find_nulls(self):
+    def find_nulls(self, imputed=False):
         """
         Generate query to count number of nulls in each column in the aggregation table
         
@@ -244,8 +244,11 @@ class SpacetimeAggregation(Aggregation):
             ])
 
         return query_template.format(
-                cols=cols_sql, state_tbl=self._state_table_sub(), aggs_tbl=self.get_table_name(),
-                group=self.state_group, date_col=self.output_date_column
+                cols=cols_sql, 
+                state_tbl=self._state_table_sub(), 
+                aggs_tbl=self.get_table_name(imputed=imputed),
+                group=self.state_group, 
+                date_col=self.output_date_column
             )
 
     def get_impute_create(self, impute_cols, nonimpute_cols):

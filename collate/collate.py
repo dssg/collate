@@ -539,7 +539,7 @@ class Aggregation(object):
         if self.schema is not None:
             return "CREATE SCHEMA IF NOT EXISTS %s" % self.schema
 
-    def find_nulls(self):
+    def find_nulls(self, imputed=False):
         """
         Generate query to count number of nulls in each column in the aggregation table
         
@@ -556,7 +556,9 @@ class Aggregation(object):
             ])
 
         return query_template.format(
-                cols=cols_sql, state_tbl=self.state_table, aggs_tbl=self.get_table_name(),
+                cols=cols_sql, 
+                state_tbl=self.state_table, 
+                aggs_tbl=self.get_table_name(imputed=imputed),
                 group=self.state_group
             )
 
