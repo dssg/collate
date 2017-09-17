@@ -6,8 +6,12 @@ test_imputation_output
 ----------------------------------
 
 Unit tests for imputation output.
-"""
 
+For all available imputation methods, make sure they correctly handle a variety
+of cases, including completely null columns and columns entirely null for a given 
+date, generating the right number of records with no nulls in the output set and
+imputed flags as necessary.
+"""
 
 import pytest
 from collate.collate import Aggregate, available_imputations
@@ -183,6 +187,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                     assert df['prefix_entiy_id_1y_%s_max' % feat].isnull().sum() == 0
 
                     # for non-categoricals, should add an "imputed" column and be non-null
+                    # (categoricals are expected to be handled through the null category)
                     if feat in exp_imp_cols AND coltype != 'categorical':
                         assert 'prefix_entiy_id_1y_%s_max_imp' % feat in df.columns.values
                         assert df['prefix_entiy_id_1y_%s_max_imp' % feat].isnull().sum() == 0
