@@ -36,7 +36,7 @@ events_data = [
 # distinct entity_id, event_date pairs
 state_data = sorted(list(product(
     set([l[0] for l in events_data]),
-    set([l[1] for l in events_data])
+    set([l[1] for l in events_data] + [date(2016, 1, 1)])
 )))
 
 
@@ -152,15 +152,15 @@ def test_basic_spacetime():
         assert rows[6]['as_of_date'] == date(2015, 1, 1)
         assert rows[6]['events_entity_id_1y_outcome::int_sum'] == 3
         assert rows[6]['events_entity_id_1y_outcome::int_sum_imp'] == 1
-        assert rows[6]['events_entity_id_1y_outcome::int_avg'] == 0.5/3.0
+        assert round(float(rows[6]['events_entity_id_1y_outcome::int_avg']), 4) == 0.1667
         assert rows[6]['events_entity_id_1y_outcome::int_avg_imp'] == 1
         assert rows[6]['events_entity_id_2y_outcome::int_sum'] == 3
         assert rows[6]['events_entity_id_2y_outcome::int_sum_imp'] == 1
-        assert rows[6]['events_entity_id_2y_outcome::int_avg'] == 1.0/3.0
+        assert round(float(rows[6]['events_entity_id_2y_outcome::int_avg']), 4) == 0.3333
         assert rows[6]['events_entity_id_2y_outcome::int_avg_imp'] == 1
         assert rows[6]['events_entity_id_all_outcome::int_sum'] == 3
         assert rows[6]['events_entity_id_all_outcome::int_sum_imp'] == 1
-        assert rows[6]['events_entity_id_all_outcome::int_avg'] == 1.0/3.0
+        assert round(float(rows[6]['events_entity_id_all_outcome::int_avg']), 4) == 0.3333
         assert rows[6]['events_entity_id_all_outcome::int_avg_imp'] == 1
         assert rows[7]['entity_id'] == 4
         assert rows[7]['as_of_date'] == date(2016, 1, 1)

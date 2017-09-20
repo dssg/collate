@@ -91,11 +91,15 @@ aggs_table_noimp = [
     [4, '2016-03-14', 9, 1]
 ]
 
+# DELETE ME
+pgpath = '/usr/lib/postgresql/9.6/bin/'
+# DELETE ME
+
 def test_available_imputations_coverage():
     assert set(available_imputations.keys()) == set(list(imputation_values.keys()) + ['error'])
 
 def test_imputation_base(feat_list, exp_imp_cols, feat_table):
-    with testing.postgresql.Postgresql() as psql:
+    with testing.postgresql.Postgresql(initdb=pgpath+'initdb', postgres=pgpath+'postgres') as psql:
         engine = sqlalchemy.create_engine(psql.url())
 
         engine.execute(
