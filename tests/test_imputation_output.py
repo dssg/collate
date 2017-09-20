@@ -19,6 +19,7 @@ from collate.spacetime import SpacetimeAggregation
 
 import sqlalchemy
 import testing.postgresql
+import pandas as pd
 
 # some imputations require arguments, so specify default values here
 # everything in collate.collate.available_imputations needs a record here!
@@ -91,15 +92,12 @@ aggs_table_noimp = [
     [4, '2016-03-14', 9, 1]
 ]
 
-# DELETE ME
-pgpath = '/usr/lib/postgresql/9.6/bin/'
-# DELETE ME
 
 def test_available_imputations_coverage():
     assert set(available_imputations.keys()) == set(list(imputation_values.keys()) + ['error'])
 
 def test_imputation_base(feat_list, exp_imp_cols, feat_table):
-    with testing.postgresql.Postgresql(initdb=pgpath+'initdb', postgres=pgpath+'postgres') as psql:
+    with testing.postgresql.Postgresql() as psql:
         engine = sqlalchemy.create_engine(psql.url())
 
         engine.execute(
@@ -111,7 +109,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                 state
             )
 
-        feat_sql = [', prefix_entiy_id_1y_%s_max int' % f for f in feat_list]
+        feat_sql = '\n'.join([', prefix_entity_id_1y_%s_max int' % f for f in feat_list])
         engine.execute(
             '''create table prefix_aggregation (
                 entity_id int
@@ -121,7 +119,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
         )
         ins_sql = 'insert into prefix_aggregation values (%s, %s'+\
             (', %s' * len(feat_list))+')'
-        for rec in aggs_table:
+        for rec in feat_table:
             engine.execute(
                 ins_sql,
                 rec
@@ -137,7 +135,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                 if not imputation_values[imp][coltype]['avail']:
                     continue
 
-                impargs = imputation_values[imp][coltype]
+                impargs = imputation_values[imp][coltype]['kwargs']
                 aggs = [
                     Aggregate(
                         feat, ['max'], {'coltype': coltype, 'all': dict(type=imp, **impargs)}
@@ -146,13 +144,15 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                 st = SpacetimeAggregation(
                         aggregates = aggs,
                         from_obj = 'prefix_events',
+                        prefix='prefix',
                         groups = ['entity_id'],
-                        intervals = ['all'],
+                        intervals = ['1y'],
                         dates = ['2016-01-01', '2016-02-03', '2016-03-14'],
                         state_table = 'states',
                         state_group = 'entity_id',
                         date_column = 'as_of_date',
-                        input_min_date = '2000-01-01'
+                        input_min_date = '2000-01-01',
+                        output_date_column = 'as_of_date'
                     )
 
                 conn = engine.connect()
@@ -180,25 +180,25 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                 trans.commit()
 
                 # check the results
-                df = pd.from_sql('SELECT * FROM prefix_aggregation_imputed')
+                df = pd.read_sql('SELECT * FROM prefix_aggregation_imputed', engine)
 
                 # we should have a record for every entity/date combo
                 assert df.shape[0] == len(states_table)
 
                 for feat in feat_list:
                     # all of the input columns should be in the result and be null-free
-                    assert 'prefix_entiy_id_1y_%s_max' % feat in df.columns.values
-                    assert df['prefix_entiy_id_1y_%s_max' % feat].isnull().sum() == 0
+                    assert 'prefix_entity_id_1y_%s_max' % feat in df.columns.values
+                    assert df['prefix_entity_id_1y_%s_max' % feat].isnull().sum() == 0
 
                     # for non-categoricals, should add an "imputed" column and be non-null
                     # (categoricals are expected to be handled through the null category)
                     if feat in exp_imp_cols and coltype != 'categorical':
-                        assert 'prefix_entiy_id_1y_%s_max_imp' % feat in df.columns.values
-                        assert df['prefix_entiy_id_1y_%s_max_imp' % feat].isnull().sum() == 0
+                        assert 'prefix_entity_id_1y_%s_max_imp' % feat in df.columns.values
+                        assert df['prefix_entity_id_1y_%s_max_imp' % feat].isnull().sum() == 0
 
                     # should not generate an imputed column when not needed
                     if feat not in exp_imp_cols:
-                        assert 'prefix_entiy_id_1y_%s_max_imp' % feat not in df.columns.values
+                        assert 'prefix_entity_id_1y_%s_max_imp' % feat not in df.columns.values
 
 def test_imputation_output():
     return test_imputation_base(
