@@ -57,7 +57,7 @@ states_table = [
     [4, '2016-02-03'],
     [1, '2016-03-14'],
     [2, '2016-03-14'],
-    [3, '2016-03-14']
+    [3, '2016-03-14'],
     [4, '2016-03-14']
 ]
 
@@ -87,12 +87,12 @@ aggs_table_noimp = [
     [4, '2016-02-03', 4, 6],
     [1, '2016-03-14', 3, 2],
     [2, '2016-03-14', None, 2],
-    [3, '2016-03-14', None, 1]
+    [3, '2016-03-14', None, 1],
     [4, '2016-03-14', 9, 1]
 ]
 
 def test_available_imputations_coverage():
-    assert set(available_imputations.keys()) == set(imputation_values.keys() + ['error'])
+    assert set(available_imputations.keys()) == set(list(imputation_values.keys()) + ['error'])
 
 def test_imputation_base(feat_list, exp_imp_cols, feat_table):
     with testing.postgresql.Postgresql() as psql:
@@ -188,7 +188,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
 
                     # for non-categoricals, should add an "imputed" column and be non-null
                     # (categoricals are expected to be handled through the null category)
-                    if feat in exp_imp_cols AND coltype != 'categorical':
+                    if feat in exp_imp_cols and coltype != 'categorical':
                         assert 'prefix_entiy_id_1y_%s_max_imp' % feat in df.columns.values
                         assert df['prefix_entiy_id_1y_%s_max_imp' % feat].isnull().sum() == 0
 
@@ -199,7 +199,7 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
 def test_imputation_output():
     return test_imputation_base(
         feat_list=['f1', 'f2', 'f3', 'f4'], 
-        exp_imp_cols = ['f1', 'f2', 'f3', 'f4']
+        exp_imp_cols = ['f1', 'f2', 'f3', 'f4'],
         feat_table=aggs_table
         )
 
