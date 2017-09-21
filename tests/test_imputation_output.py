@@ -96,7 +96,7 @@ aggs_table_noimp = [
 def test_available_imputations_coverage():
     assert set(available_imputations.keys()) == set(list(imputation_values.keys()) + ['error'])
 
-def test_imputation_base(feat_list, exp_imp_cols, feat_table):
+def _base_imputation_test(feat_list, exp_imp_cols, feat_table):
     with testing.postgresql.Postgresql() as psql:
         engine = sqlalchemy.create_engine(psql.url())
 
@@ -201,14 +201,14 @@ def test_imputation_base(feat_list, exp_imp_cols, feat_table):
                         assert 'prefix_entity_id_1y_%s_max_imp' % feat not in df.columns.values
 
 def test_imputation_output():
-    return test_imputation_base(
+    return _base_imputation_test(
         feat_list=['f1', 'f2', 'f3', 'f4'], 
         exp_imp_cols = ['f1', 'f2', 'f3', 'f4'],
         feat_table=aggs_table
         )
 
 def test_non_imputation_output():
-    return test_imputation_base(
+    return _base_imputation_test(
         feat_list=['f5', 'f6'], 
         exp_imp_cols = ['f5'],
         feat_table=aggs_table_noimp
