@@ -670,6 +670,7 @@ class Aggregation(object):
         null_counts = list(zip(res.keys(), res.fetchone()))
         impute_cols = [col for col, val in null_counts if val > 0]
         nonimpute_cols = [col for col, val in null_counts if val == 0]
+        res.close()
 
         # sql to drop and create the imputation table
         drop_imp = self.get_drop(imputed=True)
