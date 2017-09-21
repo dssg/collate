@@ -236,7 +236,6 @@ class SpacetimeAggregation(Aggregation):
                     (date, self.state_table))
             r.close()
 
-
     def find_nulls(self, imputed=False):
         """
         Generate query to count number of nulls in each column in the aggregation table
@@ -273,7 +272,10 @@ class SpacetimeAggregation(Aggregation):
         """
 
         # key columns and date column
-        query = "SELECT %s, %s" % (', '.join(map(str, self.groups.values())), self.output_date_column)
+        query = "SELECT %s, %s" % (
+            ', '.join(map(str, self.groups.values())),
+            self.output_date_column
+            )
 
         # columns with imputation filling as needed
         query += self._get_impute_select(
