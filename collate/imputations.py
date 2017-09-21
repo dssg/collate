@@ -159,7 +159,7 @@ class ImputeBinaryMode(BaseImputation):
     def to_sql(self):
         sql = self._base_sql()
         return sql.format(
-            imp="""CASE WHEN AVG("%s") OVER (%s) > 0.5 THEN 1 ELSE 0 END, 0""" %\
+            imp="""CASE WHEN AVG("%s") OVER (%s) > 0.5 THEN 1 ELSE 0 END, 0""" %
                 (self.column, self.partitionby)
         )
 
@@ -179,5 +179,6 @@ class ImputeError(BaseImputation):
         )
 
     def to_sql(self):
-        raise ValueError("NULL values found in column with 'error' imputation type: %s" %\
-                        self.column)
+        raise ValueError(
+            "NULL values found in column with 'error' imputation type: %s" % self.column
+            )

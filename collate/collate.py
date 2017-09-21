@@ -244,7 +244,7 @@ class Aggregate(AggregateExpression):
                     )
             except KeyError as err:
                 raise ValueError(
-                    "Must provide an imputation rule for every aggregation " + 
+                    "Must provide an imputation rule for every aggregation " +
                     "function (or 'all'). No rule found for %s" % name
                     ) from err
 
@@ -327,7 +327,7 @@ class Categorical(Compare):
     """
     A simple shorthand to automatically create many equality comparisons against one column
     """
-    def __init__(self, col, choices, function, impute_rules, 
+    def __init__(self, col, choices, function, impute_rules,
                  order=None, op_in_name=False, **kwargs):
         """
         Create a Compare object with an equality operator, ommitting the `=`
