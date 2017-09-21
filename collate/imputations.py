@@ -10,8 +10,10 @@ class BaseImputation(object):
         # pattern for matching the null category column for a categorical variable
         # (assumes default of __NULL_ from collate.Compare):
         self.null_cat_pattern = '__NULL_' if null_cat_pattern is None else null_cat_pattern
+
     def _base_sql(self):
-        return """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=self.column)        
+        return """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=self.column)
+
     def imputed_flag_sql(self):
         if not self.catcol:
             return """CASE WHEN "{col}" IS NULL THEN 1 ELSE 0 END AS "{col}_imp" """.format(
@@ -30,17 +32,18 @@ class ImputeMean(BaseImputation):
     a partition, such as an as_of_date), falling back to 0 if the column is entirely
     null within the partition.
 
-    For categorical features, we flag the NULL category column with a 1 and other 
+    For categorical features, we flag the NULL category column with a 1 and other
     columns with the mean, again falling back to 0 as necessary
     """
     def __init__(self, column, coltype, partitionby=None, null_cat_pattern=None, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
-            coltype=coltype, 
-            partitionby=partitionby, 
+            self,
+            column=column,
+            coltype=coltype,
+            partitionby=partitionby,
             null_cat_pattern=null_cat_pattern
         )
+
     def to_sql(self):
         sql = self._base_sql()
 
@@ -58,7 +61,8 @@ class ImputeMean(BaseImputation):
                 imp="""AVG("%s") OVER (%s), 0""" % (self.column, self.partitionby)
             )
 
-class ImputeConstant(BaseImputation): 
+
+class ImputeConstant(BaseImputation):
     """Class for constant value imputation:
 
     For aggregates, simply fill in the specified value.
@@ -68,13 +72,14 @@ class ImputeConstant(BaseImputation):
     """
     def __init__(self, column, coltype, value, null_cat_pattern=None, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
-            coltype=coltype, 
-            partitionby=None, 
+            self,
+            column=column,
+            coltype=coltype,
+            partitionby=None,
             null_cat_pattern=null_cat_pattern
         )
         self.value = value
+
     def to_sql(self):
         sql = self._base_sql()
 
@@ -84,8 +89,9 @@ class ImputeConstant(BaseImputation):
         else:
             # categorical column
             return sql.format(
-                imp = 1 if self.value in self.column or self.null_cat_pattern in self.column else 0
+                imp=1 if self.value in self.column or self.null_cat_pattern in self.column else 0
             )
+
 
 class ImputeZero(BaseImputation):
     """Class for zero filling imputation:
@@ -95,17 +101,19 @@ class ImputeZero(BaseImputation):
     """
     def __init__(self, column, coltype, null_cat_pattern=None, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
-            coltype=coltype, 
-            partitionby=None, 
+            self,
+            column=column,
+            coltype=coltype,
+            partitionby=None,
             null_cat_pattern=null_cat_pattern
         )
+
     def to_sql(self):
         sql = self._base_sql()
         return sql.format(
-            imp = 1 if self.catcol and self.null_cat_pattern in self.column else 0
+            imp=1 if self.catcol and self.null_cat_pattern in self.column else 0
         )
+
 
 class ImputeNullCategory(BaseImputation):
     """Class for just using the null category for categoricals:
@@ -115,19 +123,21 @@ class ImputeNullCategory(BaseImputation):
     """
     def __init__(self, column, coltype, null_cat_pattern=None, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
-            coltype=coltype, 
-            partitionby=None, 
+            self,
+            column=column,
+            coltype=coltype,
+            partitionby=None,
             null_cat_pattern=null_cat_pattern
         )
         if not self.catcol:
             raise ValueError('Can only use null category imputation for categorical features')
+
     def to_sql(self):
         sql = self._base_sql()
         return sql.format(
-            imp = 1 if self.null_cat_pattern in self.column else 0
+            imp=1 if self.null_cat_pattern in self.column else 0
         )
+
 
 class ImputeBinaryMode(BaseImputation):
     """Class for mode imputation for binaries:
@@ -138,19 +148,21 @@ class ImputeBinaryMode(BaseImputation):
     """
     def __init__(self, column, coltype, partitionby=None, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
-            coltype=coltype, 
+            self,
+            column=column,
+            coltype=coltype,
             partitionby=partitionby
         )
         if self.catcol:
             raise ValueError('Can only use binary mode imputation for non-categorical features')
+
     def to_sql(self):
         sql = self._base_sql()
         return sql.format(
             imp="""CASE WHEN AVG("%s") OVER (%s) > 0.5 THEN 1 ELSE 0 END, 0""" %\
                 (self.column, self.partitionby)
         )
+
 
 class ImputeError(BaseImputation):
     """Class for raising an exception on null:
@@ -161,10 +173,11 @@ class ImputeError(BaseImputation):
     """
     def __init__(self, column, coltype, **kwargs):
         BaseImputation.__init__(
-            self, 
-            column=column, 
+            self,
+            column=column,
             coltype=coltype
         )
-    def to_sql(self):
-        raise ValueError("NULL values found in column with 'error' imputation type: %s" % self.column)
 
+    def to_sql(self):
+        raise ValueError("NULL values found in column with 'error' imputation type: %s" %\
+                        self.column)

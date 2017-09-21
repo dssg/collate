@@ -7,7 +7,7 @@ from .collate import Aggregation
 
 
 class SpacetimeAggregation(Aggregation):
-    def __init__(self, aggregates, groups, intervals, from_obj, dates, 
+    def __init__(self, aggregates, groups, intervals, from_obj, dates,
                  state_table, state_group=None,
                  prefix=None, suffix=None, schema=None, date_column=None,
                  output_date_column=None, input_min_date=None):
@@ -54,17 +54,17 @@ class SpacetimeAggregation(Aggregation):
         """
         datestr = ', '.join(["'%s'::date" % dt for dt in self.dates])
         mindtstr = " AND %s >= '%s'::date" %\
-                (self.output_date_column, self.input_min_date)\
-                if self.input_min_date is not None else ""
+            (self.output_date_column, self.input_min_date)\
+            if self.input_min_date is not None else ""
         return """(
-        SELECT * 
-        FROM {st} 
+        SELECT *
+        FROM {st}
         WHERE {datecol} IN ({datestr})
         {mindtstr})""".format(
-            st = self.state_table,
-            datecol = self.output_date_column,
-            datestr = datestr,
-            mindtstr = mindtstr
+            st=self.state_table,
+            datecol=self.output_date_column,
+            datestr=datestr,
+            mindtstr=mindtstr
         )
 
     def _get_aggregates_sql(self, interval, date, group):
@@ -230,12 +230,12 @@ class SpacetimeAggregation(Aggregation):
     def find_nulls(self, imputed=False):
         """
         Generate query to count number of nulls in each column in the aggregation table
-        
+
         Returns: a SQL SELECT statement
         """
         query_template = """
-            SELECT {cols} 
-            FROM {state_tbl} t1 
+            SELECT {cols}
+            FROM {state_tbl} t1
             LEFT JOIN {aggs_tbl} t2 USING({group}, {date_col})
             """
         cols_sql = ',\n'.join([
@@ -244,10 +244,10 @@ class SpacetimeAggregation(Aggregation):
             ])
 
         return query_template.format(
-                cols=cols_sql, 
-                state_tbl=self._state_table_sub(), 
+                cols=cols_sql,
+                state_tbl=self._state_table_sub(),
                 aggs_tbl=self.get_table_name(imputed=imputed),
-                group=self.state_group, 
+                group=self.state_group,
                 date_col=self.output_date_column
             )
 
@@ -267,8 +267,8 @@ class SpacetimeAggregation(Aggregation):
 
         # columns with imputation filling as needed
         query += self._get_impute_select(
-            impute_cols, 
-            nonimpute_cols, 
+            impute_cols,
+            nonimpute_cols,
             partitionby=self.output_date_column
         )
 
@@ -276,7 +276,7 @@ class SpacetimeAggregation(Aggregation):
         query += "\nFROM %s t1" % self._state_table_sub()
         query += "\nLEFT JOIN %s t2 USING(%s, %s)" % (
             self.get_table_name(),
-            self.state_group, 
+            self.state_group,
             self.output_date_column
             )
 

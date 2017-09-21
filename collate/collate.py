@@ -5,7 +5,8 @@ import sqlalchemy.sql.expression as ex
 import re
 
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
-from .imputations import *
+from .imputations import ImputeMean, ImputeConstant, ImputeZero, \
+    ImputeNullCategory, ImputeBinaryMode, ImputeError
 
 available_imputations = {
     'mean': ImputeMean,
@@ -15,7 +16,6 @@ available_imputations = {
     'binary_mode': ImputeBinaryMode,
     'error': ImputeError
 }
-
 
 
 def make_list(a):
@@ -239,12 +239,12 @@ class Aggregate(AggregateExpression):
             # type used by the aggregate (or catch-all with 'all')
             try:
                 lkup[name] = dict(
-                    self.impute_rules.get(function) or self.impute_rules['all'], 
+                    self.impute_rules.get(function) or self.impute_rules['all'],
                     coltype=self.impute_rules['coltype']
                     )
             except KeyError as err:
                 raise ValueError(
-                    "Must provide an imputation rule for every aggregation "+\
+                    "Must provide an imputation rule for every aggregation " + 
                     "function (or 'all'). No rule found for %s" % name
                     ) from err
 
@@ -327,7 +327,8 @@ class Categorical(Compare):
     """
     A simple shorthand to automatically create many equality comparisons against one column
     """
-    def __init__(self, col, choices, function, impute_rules, order=None, op_in_name=False, **kwargs):
+    def __init__(self, col, choices, function, impute_rules, 
+                 order=None, op_in_name=False, **kwargs):
         """
         Create a Compare object with an equality operator, ommitting the `=`
         from the generated aggregation names. See Compare for more details.
@@ -344,12 +345,12 @@ class Categorical(Compare):
             for k in ks:
                 choices.pop(k)
                 kwargs['include_null'] = str(k)
-        Compare.__init__(self, col, '=', choices, function, impute_rules, 
-            order, op_in_name=op_in_name, **kwargs)
+        Compare.__init__(self, col, '=', choices, function, impute_rules,
+                         order, op_in_name=op_in_name, **kwargs)
 
 
 class Aggregation(object):
-    def __init__(self, aggregates, groups, from_obj, state_table, 
+    def __init__(self, aggregates, groups, from_obj, state_table,
                  state_group=None, prefix=None, suffix=None, schema=None):
         """
         Args:
@@ -542,12 +543,12 @@ class Aggregation(object):
     def find_nulls(self, imputed=False):
         """
         Generate query to count number of nulls in each column in the aggregation table
-        
+
         Returns: a SQL SELECT statement
         """
         query_template = """
-            SELECT {cols} 
-            FROM {state_tbl} t1 
+            SELECT {cols}
+            FROM {state_tbl} t1
             LEFT JOIN {aggs_tbl} t2 USING({group})
             """
         cols_sql = ',\n'.join([
@@ -556,8 +557,8 @@ class Aggregation(object):
             ])
 
         return query_template.format(
-                cols=cols_sql, 
-                state_tbl=self.state_table, 
+                cols=cols_sql,
+                state_tbl=self.state_table,
                 aggs_tbl=self.get_table_name(imputed=imputed),
                 group=self.state_group
             )
@@ -591,7 +592,9 @@ class Aggregation(object):
                     imputer = available_imputations[impute_rule['type']]
                 except KeyError as err:
                     raise ValueError(
-                        'Invalid imputation type %s for column %s' % (impute_rule.get('type', ''), col)
+                        'Invalid imputation type %s for column %s' % (
+                            impute_rule.get('type', ''), col
+                            )
                         ) from err
 
                 imputer = imputer(column=col, partitionby=partitionby, **impute_rule)
@@ -671,7 +674,7 @@ class Aggregation(object):
         # sql to drop and create the imputation table
         drop_imp = self.get_drop(imputed=True)
         create_imp = self.get_impute_create(
-                    impute_cols=impute_cols, 
+                    impute_cols=impute_cols,
                     nonimpute_cols=nonimpute_cols
                     )
 
