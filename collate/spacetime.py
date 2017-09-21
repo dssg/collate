@@ -226,6 +226,16 @@ class SpacetimeAggregation(Aggregation):
                         raise ValueError(
                             "date '%s' - '%s' is before input_min_date ('%s')" %
                             (date, interval, self.input_min_date))
+                    r.close()
+        for date in self.dates:
+            r = conn.execute("select count(*) from %s where %s = '%s'::date" %
+                             (self.state_table, self.output_date_column, date))
+            if r.fetchone()[0] == 0:
+                raise ValueError(
+                    "date '%s' is not present in states table ('%s')" %
+                    (date, self.state_table))
+            r.close()
+
 
     def find_nulls(self, imputed=False):
         """
@@ -263,7 +273,7 @@ class SpacetimeAggregation(Aggregation):
         """
 
         # key columns and date column
-        query = "SELECT %s, %s" % (', '.join(self.groups.values()), self.output_date_column)
+        query = "SELECT %s, %s" % (', '.join(map(str, self.groups.values())), self.output_date_column)
 
         # columns with imputation filling as needed
         query += self._get_impute_select(

@@ -61,6 +61,18 @@ class AggregateExpression(object):
         self.expression_template = expression_template \
             if expression_template else "{name1}{operator}{name2}"
 
+    def column_imputation_lookup(self, prefix=None):
+        lookup1 = self.aggregate1.column_imputation_lookup()
+        lookup2 = self.aggregate2.column_imputation_lookup()
+
+        return dict(
+            (
+                prefix + self.expression_template.format(
+                    name1=c1, operator=self.operator_str, name2=c2),
+                lookup1[c1]
+            ) for c1, c2 in product(lookup1.keys(), lookup2.keys())
+        )
+
     def alias(self, expression_template):
         """
         Set the expression template used for naming columns of an AggregateExpression
@@ -72,8 +84,6 @@ class AggregateExpression(object):
     def get_columns(self, when=None, prefix=None, format_kwargs=None):
         if prefix is None:
             prefix = ""
-        if format_kwargs is None:
-            format_kwargs = {}
 
         columns1 = self.aggregate1.get_columns(when)
         columns2 = self.aggregate2.get_columns(when)
@@ -82,8 +92,8 @@ class AggregateExpression(object):
             c = ex.literal_column("({}{} {} {})".format(
                     c1, self.cast, self.operator, c2))
             yield c.label(prefix + self.expression_template.format(
-                    name1=c1.name, operator=self.operator_str, name2=c2.name,
-                    **format_kwargs))
+                name1=c1.name, operator=self.operator_str, name2=c2.name,
+            ))
 
     def __add__(self, other):
         return AggregateExpression(self, other, "+")
@@ -619,7 +629,7 @@ class Aggregation(object):
         """
 
         # key columns and date column
-        query = "SELECT %s" % ', '.join(self.groups.values())
+        query = "SELECT %s" % ', '.join(map(str, self.groups.values()))
 
         # columns with imputation filling as needed
         query += self._get_impute_select(impute_cols, nonimpute_cols)
