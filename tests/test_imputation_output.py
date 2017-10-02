@@ -36,6 +36,10 @@ imputation_values = {
         'aggregate': {'avail': True, 'kwargs': {}},
         'categorical': {'avail': True, 'kwargs': {}}
     },
+    'zero_noflag': {
+        'aggregate': {'avail': True, 'kwargs': {}},
+        'categorical': {'avail': True, 'kwargs': {}}
+    },
     'null_category': {
         'aggregate': {'avail': False},
         'categorical': {'avail': True, 'kwargs': {}}
@@ -192,12 +196,12 @@ def _base_imputation_test(feat_list, exp_imp_cols, feat_table):
 
                     # for non-categoricals, should add an "imputed" column and be non-null
                     # (categoricals are expected to be handled through the null category)
-                    if feat in exp_imp_cols and coltype != 'categorical':
+                    # zero_noflag imputation should not generate a flag either
+                    if feat in exp_imp_cols and coltype != 'categorical' and imp != 'zero_noflag':
                         assert 'prefix_entity_id_1y_%s_max_imp' % feat in df.columns.values
                         assert df['prefix_entity_id_1y_%s_max_imp' % feat].isnull().sum() == 0
-
-                    # should not generate an imputed column when not needed
-                    if feat not in exp_imp_cols:
+                    else:
+                        # should not generate an imputed column when not needed
                         assert 'prefix_entity_id_1y_%s_max_imp' % feat not in df.columns.values
 
 def test_imputation_output():

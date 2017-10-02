@@ -6,12 +6,13 @@ import re
 
 from .sql import make_sql_clause, to_sql_name, CreateTableAs, InsertFromSelect
 from .imputations import ImputeMean, ImputeConstant, ImputeZero, \
-    ImputeNullCategory, ImputeBinaryMode, ImputeError
+    ImputeZeroNoFlag, ImputeNullCategory, ImputeBinaryMode, ImputeError
 
 available_imputations = {
     'mean': ImputeMean,
     'constant': ImputeConstant,
     'zero': ImputeZero,
+    'zero_noflag': ImputeZeroNoFlag,
     'null_category': ImputeNullCategory,
     'binary_mode': ImputeBinaryMode,
     'error': ImputeError
@@ -610,7 +611,7 @@ class Aggregation(object):
                 imputer = imputer(column=col, partitionby=partitionby, **impute_rule)
 
                 query += '\n,%s' % imputer.to_sql()
-                if not imputer.catcol:
+                if not imputer.noflag:
                     # Add an imputation flag for non-categorical columns (this is handeled
                     # for categorical columns with a separate NULL category)
                     query += '\n,%s' % imputer.imputed_flag_sql()

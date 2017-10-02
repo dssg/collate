@@ -61,6 +61,21 @@ def test_impute_zero():
     imp = ImputeZero(column='a__NULL_mean', coltype='categorical')
     assert imp.to_sql() == 'COALESCE("a__NULL_mean", 1) AS "a__NULL_mean" '
 
+def test_impute_zero_noflag():
+    imp = ImputeZeroNoFlag(column='a', coltype='aggregate')
+    assert imp.to_sql() == 'COALESCE("a", 0) AS "a" '
+    assert imp.imputed_flag_sql() is None
+    assert imp.noflag
+
+    imp = ImputeZeroNoFlag(column='a_myval_max', coltype='categorical')
+    assert imp.to_sql() == 'COALESCE("a_myval_max", 0) AS "a_myval_max" '
+
+    imp = ImputeZeroNoFlag(column='a_otherval_max', coltype='categorical')
+    assert imp.to_sql() == 'COALESCE("a_otherval_max", 0) AS "a_otherval_max" '
+
+    imp = ImputeZeroNoFlag(column='a__NULL_mean', coltype='categorical')
+    assert imp.to_sql() == 'COALESCE("a__NULL_mean", 0) AS "a__NULL_mean" '
+
 def test_impute_null_cat():
     imp = ImputeNullCategory(column='a_myval_max', coltype='categorical')
     assert imp.to_sql() == 'COALESCE("a_myval_max", 0) AS "a_myval_max" '
