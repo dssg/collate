@@ -2,10 +2,12 @@
 class BaseImputation(object):
     """Base class for various imputation methods
     """
-    def __init__(self, column, coltype, partitionby=None, null_cat_pattern=None):
+    def __init__(self, column, coltype, partitionby=None, null_cat_pattern=None, noflag=False):
         self.column = column
         self.coltype = coltype
         self.catcol = coltype in ['categorical', 'array_categorical']
+        # categoricals have a null category, so don't need a flag
+        self.noflag = True if self.catcol else noflag
         self.partitionby = "" if partitionby is None else "PARTITION BY %s" % partitionby
         # pattern for matching the null category column for a categorical variable
         # (assumes default of __NULL_ from collate.Compare):
@@ -15,13 +17,13 @@ class BaseImputation(object):
         return """COALESCE("{col}", {{imp}}) AS "{col}" """.format(col=self.column)
 
     def imputed_flag_sql(self):
-        if not self.catcol:
+        if not self.noflag:
             return """CASE WHEN "{col}" IS NULL THEN 1 ELSE 0 END AS "{col}_imp" """.format(
                 col=self.column
             )
         else:
-            # don't need to create a flag for categoricals since this is handled with the
-            # null category
+            # don't need to create a flag for categoricals (since this is handled with the
+            # null category) or other imputations that suppress the flag (e.g., zero_noflag)
             return None
 
 
@@ -112,6 +114,31 @@ class ImputeZero(BaseImputation):
         sql = self._base_sql()
         return sql.format(
             imp=1 if self.catcol and self.null_cat_pattern in self.column else 0
+        )
+
+
+class ImputeZeroNoFlag(BaseImputation):
+    """Class for zero filling with no imputation flag:
+
+    Fill in missing values with 0 without generating an imputation flag. This option
+    should be used only for cases where null values are explicitly known to be zero
+    such as absence of an entity from an events table indicating that no such event
+    has occurred.
+    """
+    def __init__(self, column, coltype, null_cat_pattern=None, **kwargs):
+        BaseImputation.__init__(
+            self,
+            column=column,
+            coltype=coltype,
+            partitionby=None,
+            null_cat_pattern=null_cat_pattern,
+            noflag=True
+        )
+
+    def to_sql(self):
+        sql = self._base_sql()
+        return sql.format(
+            imp=0
         )
 
 
