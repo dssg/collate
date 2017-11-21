@@ -29,7 +29,7 @@ Aggregated feature generation made easy.
 
 **Note**: Collate is now a bundled component of `Triage <https://github.com/dssg/triage>`_, and future development will take place there. To utilize collate within your custom pipeline, you may still import it from there.
 
----
+----
 
 Overview
 ========
