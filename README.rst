@@ -24,9 +24,12 @@ collate
 
 Aggregated feature generation made easy.
 
-
 * Free software for noncommercial use: `UChicago open source license <https://github.com/dssg/collate/blob/master/LICENSE>`_.
 * Documentation: https://collate.readthedocs.io.
+
+**Note**: Collate is now a bundled component of `Triage <https://github.com/dssg/triage>`_, and future development will take place there. To utilize collate within your custom pipeline, you may still import it from there.
+
+----
 
 Overview
 ========
